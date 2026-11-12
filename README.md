@@ -6,7 +6,7 @@
 
 ![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-70A9FF?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-37DFD0?style=flat-square)
-![Version](https://img.shields.io/badge/App-0.4.1-FFBD69?style=flat-square)
+![Version](https://img.shields.io/badge/App-0.5.0-FFBD69?style=flat-square)
 ![Telemetry](https://img.shields.io/badge/Telemetry-NVIDIA%20nvidia--smi-9CE583?style=flat-square)
 [![Windows checks](https://github.com/walladanger/New-gpu-monitor-4way4the4play/actions/workflows/windows-checks.yml/badge.svg)](https://github.com/walladanger/New-gpu-monitor-4way4the4play/actions/workflows/windows-checks.yml)
 
@@ -34,6 +34,14 @@ Built in **Python**, with **Tkinter** desktop windows and **Pillow** graph rende
 
 ## Get started
 
+### Windows installer or portable app
+
+Download the **[0.5.0 preview](https://github.com/walladanger/New-gpu-monitor-4way4the4play/releases/tag/v0.5.0)**. Run `GPU-Live-Graphs-0.5.0-Setup.exe`, or extract the entire Windows-x64 ZIP and launch `GPU-Live-Graphs.exe`. **Python does not need to be installed.** The NVIDIA driver is still required. Builds are currently unsigned.
+
+The installer creates a Start menu shortcut, offers a desktop shortcut, and supports Windows Installed Apps removal. It installs for the current user. [Installation and verification details](INSTALL.md).
+
+### Run from source
+
 **Requirements:** Windows 10/11, Python 3.11+ with Tkinter, Pillow 12.x, and an NVIDIA driver providing `nvidia-smi`. No CUDA Toolkit, API key, GPU Taskman installation, or cloud service is required.
 
 1. [Download the source ZIP](https://github.com/walladanger/New-gpu-monitor-4way4the4play/archive/refs/heads/main.zip) and extract the entire folder, or clone this repository.
@@ -45,7 +53,7 @@ Built in **Python**, with **Tkinter** desktop windows and **Pillow** graph rende
 
 3. Double-click **[Start.cmd](Start.cmd)** to launch without a console window.
 
-For console diagnostics, run `python gpu_live_graphs.py`. Close older running builds before switching versions. History is currently kept in memory and does not transfer between processes. A bundled EXE/installer is **planned**, not included in this source version.
+For console diagnostics, run `python gpu_live_graphs.py`. Close older running builds before switching versions. The source and installed versions use the same per-user data folder, so saved preferences and recorded history survive an upgrade.
 
 ## Feature tour
 
@@ -58,7 +66,7 @@ For console diagnostics, run `python gpu_live_graphs.py`. Close older running bu
 | Temperature | GPU core temperature | °C |
 | Board power | GPU board power, not total PC wall power | W |
 
-Select one GPU or show all of them. Choose **1, 5, or 15 minutes** of history. One shared sampler supplies the main dashboard and all detached windows.
+Select one GPU or show all of them. Choose **1, 5, or 15 minutes, or 1 hour** of history. One shared sampler supplies the main dashboard and all detached windows.
 
 Names come from the driver. Identical cards receive labels such as **RTX 3090 #1** and **RTX 3090 #2**; UUIDs identify cards internally. The app is not hard-coded to three GPUs.
 
@@ -117,7 +125,15 @@ The new window initially copies the view and pins, then keeps independent GPU se
 | PDF | Same Export menu | Graph, summary, and sample tables |
 | PNG | Export → Save all graphs as PNG | Four graphs with visible values and pin details, ready for annotations |
 
-CSV/PDF files go into `exports/`; graph images go into `captures/` beside the app. Unsupported values stay missing rather than becoming false zeroes. Detached windows can export their own graph.
+CSV/PDF files go into `%LOCALAPPDATA%\GPU Live Graphs\exports`; graph images go into that data folder's `captures` subfolder. Unsupported values stay missing rather than becoming false zeroes. Detached windows can export their own graph.
+
+### 08 · Pick up where you left off
+
+**History:** a background SQLite writer retains up to 24 hours, within a 128 MB database cap. Up to 4,000 recent samples are restored for the interactive 1-hour view. Older retained rows can be exported through **Export → Saved history CSV**, for the selected GPU. Restored readings are not labeled as current live values. Paused periods remain gaps.
+
+**Preferences:** colors, line styles, emphasis, GPU filter, history range, zoom, always-on-top, main-window geometry, and up to 12 detached views are saved periodically and on normal exit. GPU choices follow UUIDs. Window positions are adjusted to an available monitor when the old screen is missing. Pins are not restored across sessions.
+
+Data lives in `%LOCALAPPDATA%\GPU Live Graphs`: `history.sqlite3`, `preferences.json`, `logs/`, `exports/`, and `captures/`. Uninstall keeps this data. Storage failures leave monitoring available in memory and appear in the status/logs.
 
 ## Where the data comes from
 
@@ -130,11 +146,10 @@ This is an **independent project inspired by [Scott Hanselman's GPU Taskman](htt
 ## What is still left?
 
 1. **Stability qualification:** long workload runs, mixed-DPI displays, and investigation of remaining abrupt exits.
-2. **Saved preferences:** positions, GPU colors, styles, filters, and history range.
-3. **Persistent history:** survive restarts with retention and disk limits.
-4. **Easy installation:** bundled EXE, installer, checksums, and release validation.
-5. **Tray and alerts:** quick view and configurable thresholds.
-6. **Process/runtime insights:** GPU processes first; active requests, tokens/sec, and TTFT through separate runtime adapters later.
+2. **History controls:** configurable retention/disk limits and richer browsing beyond the current 1-hour interactive range.
+3. **Release polish:** signing and broader clean-machine validation.
+4. **Keyboard/accessibility:** named icons, focus paths, and keyboard pin navigation.
+5. **Tray, alerts, and process/runtime insights:** deferred while the next visual direction is being prepared.
 
 The [prioritized roadmap](ROADMAP.md) has status, scope, and acceptance criteria. Unchecked items are planned features, not capabilities implied by the screenshots.
 
@@ -142,7 +157,7 @@ The [prioritized roadmap](ROADMAP.md) has status, scope, and acceptance criteria
 
 - **No readings?** Run `nvidia-smi` and verify that the NVIDIA driver sees the cards.
 - **No window?** Run `python gpu_live_graphs.py` for startup errors.
-- **Unexpected exit?** Keep `logs/app.log` and `logs/native-crash-PID.log`. Review logs before sharing; they may include local paths and driver diagnostics.
+- **Unexpected exit?** Keep `app.log` and `native-crash-PID.log` from `%LOCALAPPDATA%\GPU Live Graphs\logs`. Review logs before sharing; they may include local paths and driver diagnostics.
 - **Old appearance after updating?** Close the older process and launch the new folder's `Start.cmd`.
 
 Version 0.4.1 repaired the frameless resize regression, removed the Python native-window callback, and added redraw recovery and local logs. The reported abrupt exit was not reproduced in the earlier 100-cycle stress run; it is not considered conclusively resolved.
@@ -155,6 +170,6 @@ python tools/capture_screenshots.py
 python tools/check_docs.py
 ```
 
-The screenshot tool opens **its own demo instance**, queries no GPU, and captures only that instance's windows. Windows-specific checks require a Windows desktop session. The [Windows workflow](https://github.com/walladanger/New-gpu-monitor-4way4the4play/actions/workflows/windows-checks.yml) runs checks on Python 3.11 and 3.14 and attaches a source ZIP plus SHA-256 checksum to successful runs; this is a source package, not a bundled executable.
+The screenshot tool opens **its own demo instance**, queries no GPU, and captures only that instance's windows. The six screenshots show the original 0.4.1 interface; the persistence and packaging additions above are in 0.5.0. Windows-specific checks require a Windows desktop session. The [Windows workflow](https://github.com/walladanger/New-gpu-monitor-4way4the4play/actions/workflows/windows-checks.yml) tests Python 3.11/3.14, builds the portable app/installer, verifies frozen rendering and exports, checks persistence across restart, then installs and uninstalls in an isolated directory. Versioned preview releases are created only after these checks pass.
 
 [User guide](docs/USER-GUIDE.md) · [Screenshot walkthrough](docs/FEATURE-TOUR.md) · [Design findings](docs/DESIGN-REVIEW.md) · [Contributing](CONTRIBUTING.md) · [License](LICENSE)

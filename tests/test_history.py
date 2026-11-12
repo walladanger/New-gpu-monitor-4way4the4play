@@ -94,6 +94,30 @@ class HistoryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             restore(time.time(),json.dumps([value]),(time.monotonic(),time.time()))
 
+    def test_writer_recovers_after_a_transient_storage_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            store=HistoryStore(Path(temporary)/'history.sqlite3')
+            self.assertTrue(store.ready.wait(3))
+            store.messages.get(timeout=1)
+            original=store._trim
+            calls=[]
+            def fail_once(connection):
+                if not calls:
+                    calls.append(True)
+                    raise OSError('simulated temporary I/O failure')
+                return original(connection)
+            store._trim=fail_once
+            try:
+                store.append(snapshot())
+                self.assertTrue(store.flush())
+                self.assertEqual(store.messages.get(timeout=1)[0],'error')
+                store.append(snapshot())
+                self.assertTrue(store.flush())
+                self.assertEqual(store.messages.get(timeout=1)[0],'recovered')
+                self.assertIsNone(store.error)
+            finally:
+                store.close()
+
 
 class HistoryDashboardTests(unittest.TestCase):
     def test_restart_restores_graphs_without_claiming_live_readings(self):

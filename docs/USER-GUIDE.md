@@ -1,10 +1,10 @@
-# GPU Live Graphs 0.4.1
+# GPU Live Graphs 0.5.0
 
 Four live NVIDIA graphs: GPU usage, VRAM, temperature and board power. Written in Python, with Tkinter windows and Pillow graph rendering.
 
 ## Start
 
-Extract the entire folder and double-click **Start.cmd**, or **Launch.pyw** if Python handles .pyw files. Close the older version when you are ready; launching the update does not transfer that running instance's history.
+Use the [Windows installer or portable package](../INSTALL.md) to run without Python installed. For source use, extract the entire folder and double-click **Start.cmd**, or **Launch.pyw** if Python handles .pyw files. Close older builds before updating. Recorded history and preferences now survive restart.
 
 Requirements: Windows 10/11, Python 3.11+ with tkinter, Pillow 12.x, and an NVIDIA driver with nvidia-smi. Python 3.14 and Pillow 12.3 are already available on the development machine. No administrator access, CUDA Toolkit, API key or network connection is needed to run it.
 
@@ -71,13 +71,13 @@ Pins remain recorded while you zoom or pan, and return when their timestamps are
 
 ## CSV and PDF
 
-Open **Export** in the main toolbar, choose a data window and GPU, then select CSV or PDF. Separate graph windows have their own toolbar Export menu. Files are saved in the `exports` folder beside the app; the main status bar reports the filename. CSV includes local and UTC timestamps, GPU identity, all four measurements, original MiB values and capacity/power limits. Unavailable readings are blank, and measured zero remains zero.
+Open **Export** in the main toolbar, choose a data window and GPU, then select CSV or PDF. Separate graph windows have their own toolbar Export menu. Files are saved in the `exports` folder in `%LOCALAPPDATA%\GPU Live Graphs`; the main status bar reports the filename. CSV includes local and UTC timestamps, GPU identity, all four measurements, original MiB values and capacity/power limits. Unavailable readings are blank, and measured zero remains zero.
 
 PDF contains a graph and summary followed by tables of every actual sample in that selected GPU's visible time range. It is a rendered visual report; use CSV for machine-readable values. Neither export invents intermediate samples or includes a different GPU's readings.
 
 ## Save an image for annotations
 
-Open **Export → Save all graphs as PNG** to capture all four graphs, including names, live values and visible pin details, in the `captures` folder alongside the app. It follows the current grid/vertical arrangement. In a separate graph window, use **Export → Save graph as PNG**. The status bar reports the saved filename. This provides an alternative to taking a screen grab.
+Open **Export → Save all graphs as PNG** to capture all four graphs, including names, live values and visible pin details, in the `captures` folder in `%LOCALAPPDATA%\GPU Live Graphs`. It follows the current grid/vertical arrangement. In a separate graph window, use **Export → Save graph as PNG**. The status bar reports the saved filename. This provides an alternative to taking a screen grab.
 
 ## Source of the readings
 
@@ -85,7 +85,7 @@ This is an independent desktop companion inspired by [Scott Hanselman's GPU Task
 
 This version provides NVIDIA device-level graphs. GPU Taskman's process/model inspector, AMD support and KV-cache analysis are not integrated. Power is GPU board power, not wall-socket power. Timestamps describe the completed driver query; different sensors may have their own measurement intervals.
 
-Unsupported readings display as unavailable, never as a measured zero. Driver errors trigger retries and visible status messages. Missing readings and paused intervals appear as gaps. History remains in memory for up to about 15 minutes and is discarded on exit.
+Unsupported readings display as unavailable, never as a measured zero. Driver errors trigger retries and visible status messages. Missing readings and paused intervals appear as gaps. Up to 4,000 recent samples support the 1-hour graph view. A background SQLite archive retains up to 24 hours within a 128 MB database cap; the cap excludes exports, captures, logs, and the temporary transaction journal. Restored readings are historical, not live values. Use Export → Saved history CSV for older retained rows.
 
 ## Validation and troubleshooting
 
@@ -100,3 +100,9 @@ Windowless launches now write Python errors to `logs/app.log` and native-fault i
 Run `python -m unittest discover -s tests -v` from this folder. Tests cover naming, recorded-sample selection, missing counters, pin lifetime, comparisons, blur compositing, focus buttons, responsive layout, separate windows, pause and image generation.
 
 For console errors, run `python gpu_live_graphs.py`. For driver availability, run `nvidia-smi`.
+
+## Saved preferences and data
+
+Colors, styles, emphasis, filters, history range, zoom, always-on-top, window positions, and up to 12 open detached views are saved every five seconds and on normal exit. GPU selection uses UUIDs. Positions are clamped to available monitors. Pins are not restored across sessions.
+
+Data is stored in `%LOCALAPPDATA%\GPU Live Graphs`: `history.sqlite3`, `preferences.json`, `logs`, `exports`, and `captures`. Uninstall retains user data. Invalid preferences are backed up before replacement; newer schemas are preserved rather than overwritten. Archive corruption or I/O errors leave monitoring usable in memory and are reported in the status/logs.

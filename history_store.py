@@ -140,7 +140,7 @@ class HistoryStore:
         for wall,payload in reversed(rows):
             try:
                 records.append(restore(wall,payload,anchor))
-            except (ValueError,TypeError,KeyError):
+            except (ValueError,TypeError,KeyError,RecursionError,OverflowError):
                 logging.getLogger('gpu_live_graphs').warning('Skipped an invalid archived sample')
         self.messages.put(('loaded',records))
 
@@ -205,6 +205,9 @@ class HistoryStore:
                                 connection.execute('INSERT INTO samples(session,wall,payload,error) VALUES(?,?,?,?)',
                                                    (self.session,snapshot.wall_time,payload,error))
                             count+=1
+                            if self.error:
+                                self.error=None
+                                self.messages.put(('recovered',None))
                         elif task[0]=='export':
                             self._export(connection,*task[1:])
                 except (OSError,sqlite3.Error,ValueError,TypeError) as error:

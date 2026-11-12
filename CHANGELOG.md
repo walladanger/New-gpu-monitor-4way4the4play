@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0 preview · November 12, 2026
+
+- Add a portable Windows x64 app and per-user installer with install/uninstall verification.
+- Move writable data to `%LOCALAPPDATA%\GPU Live Graphs`.
+- Persist 24 hours of query history in a bounded background SQLite archive; restore up to an hour and export older retained rows to CSV.
+- Save preferences and detached views with UUID-based selection and monitor-aware geometry fallback.
+- Add corrupt-file preservation, atomic preference writes, bounded worker queues, and source/frozen restart checks.
+- Add repeatable stability checks. Earlier abrupt exits and the full mixed-DPI matrix remain open.
+- Defer tray, alerts, and process details until the next visual direction is supplied.
+
 ## Repository/documentation foundation · November 12, 2026
 
 - Publish the standalone GPU Live Graphs source separately from GPU-Monitoring.

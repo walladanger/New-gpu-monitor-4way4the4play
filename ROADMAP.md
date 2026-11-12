@@ -1,6 +1,16 @@
 # GPU Live Graphs · Roadmap
 
-Reviewed November 12, 2026 against standalone Python **0.4.1**. This roadmap belongs to this repository, not the separate C# GPU-Monitoring app. Priorities describe recommended order, not delivery dates.
+Reviewed November 12, 2026 against standalone **0.5.0 preview**. This roadmap belongs to this repository, not the separate C# GPU-Monitoring app. Priorities describe recommended order, not delivery dates.
+
+## Current requested order
+
+| Order | Work | Status |
+| --- | --- | --- |
+| 4 first | Windows EXE and installer | Implemented; portable/frozen/install/uninstall checks gate release |
+| 3 next | Persistent history | Implemented: 24h archive, 128 MB database cap, 1h graph restore, saved-history CSV |
+| 2 next | Saved preferences | Implemented: atomic JSON, UUID-based views, geometry recovery, detached views |
+| 1 next | Stability | 100-cycle synthetic and 180-second live checks passed; multi-hour and full mixed-DPI qualification remain open |
+| 5 later | Tray, alerts, process details | Deferred at the user's request pending visual ideas and screenshots |
 
 ## Working now
 
@@ -15,6 +25,9 @@ Reviewed November 12, 2026 against standalone Python **0.4.1**. This roadmap bel
 - [x] Stale/error states, sampling retries, redraw recovery, local crash logs.
 - [x] GitHub landing page, six real-UI demo captures, and feature walkthrough.
 - [x] Windows CI on Python 3.11 and 3.14, with source ZIP and SHA-256 artifact.
+- [x] Bundled Windows x64 portable app and per-user installer.
+- [x] Background SQLite history with restart recovery and retained-history CSV.
+- [x] Saved colors/styles/filters/history/geometry and detached views.
 
 ## P0 · Confidence before expansion
 
@@ -26,21 +39,23 @@ Reviewed November 12, 2026 against standalone Python **0.4.1**. This roadmap bel
 | Windows CI | Tests run and a source ZIP is produced from the same commit | Passed on Python 3.11 and 3.14; source/checksum artifact uploaded |
 | Release qualification | Versioned notes, checksums, clean-machine launch, and dependency review | Pending |
 
-**Recommended next feature:** saved preferences after the stability checks. It improves every launch without introducing another telemetry backend.
+**Current focus:** complete stability qualification of the new packaging, archive, and preference paths. Keep item 5 deferred.
 
 ## P1 · Daily usability and installation
 
 | Item | Acceptance criteria | Suggested approach |
 | --- | --- | --- |
-| Saved preferences | Restart restores valid geometry, filter, history, colors/styles; missing cards/displays fall back safely | Versioned JSON, atomic saves, UUID keys |
-| Session layout | Optional detached windows restore without duplicate collectors; reset-layout command works | Opt-in session restore |
-| Persistent history | Survives restart; explicit retention/disk budget; missing values and UTC timestamps retain meaning | SQLite with bounded reads/writes |
-| Windows package | Clean Windows machine runs without installing Python | Portable EXE first, installer next |
+| Saved preferences | Restart restores valid geometry, filter, history, colors/styles; missing cards/displays fall back safely | Implemented; includes corrupt-file preservation |
+| Session layout | Detached windows restore without duplicate collectors | Implemented, up to 12 views; reset/opt-out controls remain future work |
+| Persistent history | Survives restart; bounded retention/storage; missing values and UTC timestamps retain meaning | Implemented with fixed 24h/128 MB limits; configurable limits and longer graph browsing remain future work |
+| Windows package | Runs without installing Python; installation/removal preserves user data | Implemented; broader clean-machine coverage and signing remain open |
 | Startup diagnostics | Clear errors for missing Python/Pillow/driver; easy access to diagnostics | Avoid silent startup failures |
 | Keyboard/accessibility | Useful names for icons, visible focus, keyboard access to menus/pins/exports/zoom | Verify Windows UI Automation and Tk behavior |
 | Export destination | User selects folder/name; cancel leaves no partial file | Keep toolbar export placement |
 
 ## P2 · Monitoring that stays out of the way
+
+Tray monitoring, alerts, and process details in this section are deferred until the user's next ideas/screenshots are available.
 
 - [ ] Tray quick view with explicit quit.
 - [ ] Optional temperature/VRAM/power thresholds with debounce and cooldown.
@@ -63,4 +78,4 @@ Preserve the four data panels and measurement hierarchy. Stack narrow layouts ve
 
 ## Decisions still needed
 
-Packaging technology, persistence retention defaults, and alert delivery channels remain open. Unchecked work is not included in version 0.4.1.
+Packaging uses PyInstaller plus Inno Setup. Initial archive limits are 24 hours and a 128 MB database cap. Signing, user-configurable archive limits, and later alert delivery choices remain open. Unchecked work is not included in version 0.5.0.

@@ -39,6 +39,14 @@ def resized_bounds(bounds,edge,dx,dy,minimum):
     return left,top,width,height
 
 
+def fit_bounds(bounds,work_area,minimum=(450,300)):
+    x,y,width,height=map(int,bounds)
+    left,top,right,bottom=work_area
+    width=min(max(minimum[0],width),max(1,right-left))
+    height=min(max(minimum[1],height),max(1,bottom-top))
+    return min(max(left,x),right-width),min(max(top,y),bottom-height),width,height
+
+
 class MonitorInfo(ctypes.Structure):
     _fields_=[("cbSize",wintypes.DWORD),("rcMonitor",wintypes.RECT),("rcWork",wintypes.RECT),("dwFlags",wintypes.DWORD)]
 
@@ -49,6 +57,7 @@ class WindowChrome:
         self.native,self.error,self.hwnd=False,None,None
         self.maximized=False
         self.normal_bounds=None
+        self.last_normal_bounds=None
         self._drag=None
         self._grab_widget=None
         window.overrideredirect(True)
@@ -117,6 +126,8 @@ class WindowChrome:
         self.user.SetWindowPos.argtypes=[wintypes.HWND,wintypes.HWND,ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_int,wintypes.UINT]
         self.user.MonitorFromWindow.argtypes=[wintypes.HWND,wintypes.DWORD]
         self.user.MonitorFromWindow.restype=wintypes.HANDLE
+        self.user.MonitorFromRect.argtypes=[ctypes.POINTER(wintypes.RECT),wintypes.DWORD]
+        self.user.MonitorFromRect.restype=wintypes.HANDLE
         self.user.GetMonitorInfoW.argtypes=[wintypes.HANDLE,ctypes.POINTER(MonitorInfo)]
         self.get_style=getattr(self.user,"GetWindowLongPtrW",self.user.GetWindowLongW)
         self.get_style.argtypes=[wintypes.HWND,ctypes.c_int]
@@ -167,6 +178,29 @@ class WindowChrome:
 
     def bounds(self):
         return self.window.winfo_rootx(),self.window.winfo_rooty(),self.window.winfo_width(),self.window.winfo_height()
+
+    def preference_bounds(self):
+        if self.maximized and self.normal_bounds:
+            return self.normal_bounds
+        if self.is_minimized() and self.last_normal_bounds:
+            return self.last_normal_bounds
+        self.last_normal_bounds=self.bounds()
+        return self.last_normal_bounds
+
+    def restore_bounds(self,bounds,maximized=False):
+        area=(0,0,self.window.winfo_screenwidth(),self.window.winfo_screenheight())
+        if self.native:
+            x,y,width,height=bounds
+            rect=wintypes.RECT(x,y,x+width,y+height)
+            info=MonitorInfo();info.cbSize=ctypes.sizeof(info)
+            monitor=self.user.MonitorFromRect(ctypes.byref(rect),2)
+            if self.user.GetMonitorInfoW(monitor,ctypes.byref(info)):
+                work=info.rcWork
+                area=work.left,work.top,work.right,work.bottom
+        self.set_bounds(fit_bounds(bounds,area,self.window.minsize()))
+        self.window.update_idletasks()
+        if maximized and not self.maximized:
+            self.toggle_maximize()
 
     def set_bounds(self,bounds):
         x,y,width,height=map(int,bounds)
@@ -234,6 +268,8 @@ class WindowChrome:
 
     def minimize(self):
         self.end_drag()
+        if not self.maximized:
+            self.last_normal_bounds=self.bounds()
         if self.native:
             self.user.ShowWindow(self.hwnd,6)
         else:

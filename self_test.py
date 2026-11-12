@@ -13,9 +13,12 @@ def run(report_path):
     from gpu_data import Reading,Snapshot
     result={'version':VERSION,'success':False,'checks':[]}
     app=None
+    session=tempfile.TemporaryDirectory()
     try:
         errors=[]
-        app=Dashboard(collect=False)
+        app=Dashboard(collect=False,persist=True,preferences=True,data_dir=session.name)
+        assert app.store.ready.wait(5)
+        app.poll_history()
         app.report_callback_exception=lambda *args:errors.append(str(args[1]))
         now=time.monotonic()
         for i in range(30):
@@ -45,12 +48,24 @@ def run(report_path):
             assert {p.suffix for p in folder.iterdir()}=={'.csv','.pdf','.png'}
         result['checks'].append('CSV/PDF/PNG exports')
         assert not errors,errors
+        app.charts[0].series_colors['GPU-SELF-TEST']='#123456'
+        app.window_choice.set('1 hour')
+        app.close()
+        app=Dashboard(collect=False,persist=True,preferences=True,data_dir=session.name)
+        assert app.store.ready.wait(5)
+        app.poll_history()
+        assert len(app.history)==30
+        assert app.available==set() and app.latest_at is None
+        assert app.charts[0].series_colors['GPU-SELF-TEST']=='#123456'
+        assert app.window_choice.get()=='1 hour'
+        result['checks'].append('SQLite history and preferences survive restart')
         result['success']=True
     except Exception:
         result['error']=traceback.format_exc()
     finally:
         if app is not None:
             app.close()
+        session.cleanup()
         report_path=Path(report_path)
         report_path.parent.mkdir(parents=True,exist_ok=True)
         report_path.write_text(json.dumps(result,indent=2),encoding='utf-8')

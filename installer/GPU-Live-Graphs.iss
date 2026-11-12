@@ -6,6 +6,7 @@
 AppId={{C61F3A9C-E33F-4EEC-948F-ED08EAB114E8}
 AppName=GPU Live Graphs
 AppVersion={#MyAppVersion}
+MinVersion=10.0
 AppPublisher=walladanger
 AppPublisherURL=https://github.com/walladanger/New-gpu-monitor-4way4the4play
 DefaultDirName={localappdata}\Programs\GPU Live Graphs

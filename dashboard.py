@@ -22,6 +22,7 @@ from ambient_theme import AmbientTheme
 from window_chrome import WindowChrome
 from app_paths import user_path, data_directory
 from history_store import HistoryStore
+from preferences import Preferences
 from version import VERSION
 
 WINDOWS = {"1 minute": 60, "5 minutes": 300, "15 minutes": 900, "1 hour": 3600}
@@ -281,7 +282,7 @@ class DetachedWindow(tk.Toplevel):
                                      values=controller.gpu_choice.cget("values"))
         self.gpu_choice.set(controller.gpu_choice.get())
         self.gpu_choice.pack(side="left")
-        self.gpu_choice.bind("<<ComboboxSelected>>", lambda _: controller.schedule_redraw())
+        self.gpu_choice.bind("<<ComboboxSelected>>", lambda _: controller.filter_changed(self))
         self.window_choice = DarkSelect(controls, state="readonly", values=list(WINDOWS), width=11)
         self.window_choice.set(controller.window_choice.get())
         self.window_choice.pack(side="left", padx=10)
@@ -312,7 +313,7 @@ class DetachedWindow(tk.Toplevel):
 
 
 class Dashboard(tk.Tk):
-    def __init__(self, collect=True, persist=None, data_dir=None):
+    def __init__(self, collect=True, persist=None, data_dir=None, preferences=None):
         super().__init__()
         self.withdraw()
         self._closed = False
@@ -322,7 +323,12 @@ class Dashboard(tk.Tk):
         self.configure(bg=BG)
         self.history = deque(maxlen=4000)
         persist_enabled=collect if persist is None else persist
-        self.data_dir=Path(data_dir) if data_dir is not None else (data_directory() if persist_enabled else None)
+        preferences_enabled=collect if preferences is None else preferences
+        self.data_dir=Path(data_dir) if data_dir is not None else (data_directory() if persist_enabled or preferences_enabled else None)
+        self.preferences=Preferences(self.data_dir/'preferences.json') if preferences_enabled else None
+        self.saved_preferences=self.preferences.load() if self.preferences else {}
+        self.preference_job=None
+        self.preferences_error=('Preferences: '+self.preferences.error) if self.preferences and self.preferences.error else None
         self.store=HistoryStore(self.data_dir/'history.sqlite3') if persist_enabled else None
         self.storage_error=None
         self.restored_count=0
@@ -354,7 +360,7 @@ class Dashboard(tk.Tk):
         self.gpu_choice = DarkSelect(filters, state="readonly", values=["All GPUs"], width=28)
         self.gpu_choice.set("All GPUs")
         self.gpu_choice.pack(side="left")
-        self.gpu_choice.bind("<<ComboboxSelected>>", lambda _: self.schedule_redraw())
+        self.gpu_choice.bind("<<ComboboxSelected>>", lambda _: self.filter_changed(self))
         tk.Label(filters, text="History", bg=BG, fg=MUTED, font=("Segoe UI", 10)).pack(side="left", padx=(16, 8))
         self.window_choice = DarkSelect(filters, state="readonly", values=list(WINDOWS), width=11)
         self.window_choice.set("1 minute")
@@ -396,8 +402,90 @@ class Dashboard(tk.Tk):
         self.viewport.bind("<MouseWheel>", self.scroll_graphs)
         self.ambient = AmbientTheme(self)
         self.deiconify()
+        if self.saved_preferences:
+            self.restore_preferences()
+        if self.preferences:
+            self.preference_job=self.after(1500,self.periodic_preferences)
         if collect:
             self.tick_job = self.after(100, self.tick)
+
+    def selected_uuid(self,control):
+        index=control.current()
+        return list(self.devices)[index-1] if 0<index<=len(self.devices) else None
+
+    def apply_gpu_selection(self,root):
+        uid=getattr(root,'pending_gpu',None)
+        if uid in self.devices:
+            root.gpu_choice.set(root.gpu_choice.cget('values')[list(self.devices).index(uid)+1])
+            root.pending_gpu=None
+
+    def filter_changed(self,root):
+        root.pending_gpu=None
+        self.schedule_redraw()
+
+    def restore_view(self,chart,state):
+        chart.series_colors=dict(state.get('colors',{}))
+        chart.line_styles=dict(state.get('styles',{}))
+        chart.focused_uuid=state.get('focus')
+        chart.view.zoom=state.get('zoom',1)
+        chart.view.lag=state.get('lag',0)
+
+    def restore_preferences(self):
+        state=self.saved_preferences.get('main',{})
+        self.window_choice.set(state.get('history','1 minute'))
+        self.pending_gpu=state.get('gpu')
+        self.topmost.set(state.get('topmost',False))
+        self.attributes('-topmost',self.topmost.get())
+        if state.get('bounds'):
+            self.chrome.restore_bounds(state['bounds'],state.get('maximized',False))
+        for chart in self.charts:
+            self.restore_view(chart,state.get('charts',{}).get(chart.key,{}))
+        for item in self.saved_preferences.get('detached',[]):
+            source=next((c for c in self.charts if c.key==item['metric']),None)
+            if source is None:
+                continue
+            window=self.open_window(source)
+            self.restore_view(window.chart,item)
+            window.window_choice.set(item.get('history','1 minute'))
+            window.pending_gpu=item.get('gpu')
+            if item.get('bounds'):
+                window.chrome.restore_bounds(item['bounds'],item.get('maximized',False))
+
+    def chart_preferences(self,chart):
+        colors={uid:chart.series_color(uid) for uid in self.devices}
+        colors.update(chart.series_colors)
+        return {'colors':colors,'styles':chart.line_styles,'focus':chart.focused_uuid,
+                'zoom':chart.view.zoom,'lag':chart.view.lag}
+
+    def preference_state(self):
+        state={'schema':1,'main':{'bounds':list(self.chrome.preference_bounds()),'maximized':self.chrome.is_maximized(),
+               'topmost':self.topmost.get(),'gpu':getattr(self,'pending_gpu',None) or self.selected_uuid(self.gpu_choice),
+               'history':self.window_choice.get(),'charts':{c.key:self.chart_preferences(c) for c in self.charts}},'detached':[]}
+        for window in self.detached:
+            item=self.chart_preferences(window.chart)
+            item.update(metric=window.chart.key,bounds=list(window.chrome.preference_bounds()),maximized=window.chrome.is_maximized(),
+                        gpu=getattr(window,'pending_gpu',None) or self.selected_uuid(window.gpu_choice),history=window.window_choice.get())
+            state['detached'].append(item)
+        return state
+
+    def save_preferences(self):
+        if not self.preferences:
+            return
+        try:
+            self.preferences.save(self.preference_state())
+            if not self.preferences.read_only:
+                self.preferences_error=None
+        except (OSError,ValueError,TypeError) as error:
+            message='Could not save preferences: '+str(error)
+            if message!=self.preferences_error:
+                logging.getLogger('gpu_live_graphs').error(message)
+            self.preferences_error=message
+
+    def periodic_preferences(self):
+        self.preference_job=None
+        if not self._closed:
+            self.save_preferences()
+            self.preference_job=self.after(5000,self.periodic_preferences)
 
     def layout_toolbar(self, event):
         narrow = event.width < 850
@@ -499,6 +587,7 @@ class Dashboard(tk.Tk):
         self.redraw()
 
     def accept(self, snapshot, error=None, save=True):
+        selections={root:self.selected_uuid(root.gpu_choice) for root in [self]+self.detached}
         self.error = error
         self.available = {reading.uuid for reading in snapshot.readings}
         self.history.append(snapshot)
@@ -519,6 +608,11 @@ class Dashboard(tk.Tk):
         for uid, label in self.legend_labels.items():
             label.configure(text=f"● {names[uid]}")
         self.gpu_choice.configure(values=["All GPUs"] + list(names.values()))
+        for root in [self]+self.detached:
+            root.gpu_choice.configure(values=self.gpu_choice.cget('values'))
+            uid=selections[root]
+            root.gpu_choice.set(names[uid] if uid in names else 'All GPUs')
+            self.apply_gpu_selection(root)
         self.layout_legend()
 
     def poll_history(self):
@@ -552,13 +646,16 @@ class Dashboard(tk.Tk):
                 self.notice=(time.monotonic()+20,'Saved stored history to '+value)
             elif kind=='error':
                 self.storage_error=value
+            elif kind=='recovered':
+                self.storage_error=None
 
     def export_stored(self,uuid):
         if not self.store:
             raise ValueError('Stored history is not enabled in this demo/test instance.')
         if uuid not in self.devices:
             raise ValueError('Choose a GPU first.')
-        destination=user_path('exports')
+        destination=self.data_dir/'exports' if self.data_dir else user_path('exports')
+        destination.mkdir(parents=True,exist_ok=True)
         path=destination/(datetime.now().strftime('%Y%m%d-%H%M%S-%f')+'-saved-history.csv')
         self.store.export(path,uuid,gpu_labels(self.devices)[uuid])
         self.notice=(time.monotonic()+20,'Exporting retained history in the background...')
@@ -582,6 +679,8 @@ class Dashboard(tk.Tk):
             status = f"{len(self.available)} GPU(s) connected · Last update {stamp} · Up to 1 hour in graphs · 24 hours saved on disk (128 MB cap)."
         if self.storage_error or (self.store and self.store.error):
             status+=' · '+(self.storage_error or self.store.error)
+        if self.preferences_error:
+            status+=' · '+self.preferences_error
         self.status.configure(text=status)
 
     def tick(self):
@@ -635,6 +734,7 @@ class Dashboard(tk.Tk):
     def close(self):
         if self._closed:
             return
+        self.save_preferences()
         self._closed = True
         if getattr(self, "glass_popup", None):
             self.glass_popup.close()
