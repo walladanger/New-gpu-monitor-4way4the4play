@@ -13,17 +13,18 @@ import tkinter as tk
 
 from PIL import Image, ImageDraw, ImageTk
 
-from gpu_data import Collector, METRICS, PinStore, panel_columns, gpu_labels
+from gpu_data import Collector, METRICS, PinStore, Snapshot, panel_columns, gpu_labels
 from graph_scene import BG, PANEL, TEXT, MUTED, GRID, COLORS, font, render_graph
 from chart_view import TimeView
 from controls import DarkSelect, QuickMenu, ExportMenu, SlimScrollbar
 from exporting import visible_records, export_csv, export_pdf
 from ambient_theme import AmbientTheme
 from window_chrome import WindowChrome
-from app_paths import user_path
+from app_paths import user_path, data_directory
+from history_store import HistoryStore
 from version import VERSION
 
-WINDOWS = {"1 minute": 60, "5 minutes": 300, "15 minutes": 900}
+WINDOWS = {"1 minute": 60, "5 minutes": 300, "15 minutes": 900, "1 hour": 3600}
 
 
 def button(parent, text, command):
@@ -311,7 +312,7 @@ class DetachedWindow(tk.Toplevel):
 
 
 class Dashboard(tk.Tk):
-    def __init__(self, collect=True):
+    def __init__(self, collect=True, persist=None, data_dir=None):
         super().__init__()
         self.withdraw()
         self._closed = False
@@ -319,7 +320,12 @@ class Dashboard(tk.Tk):
         self.geometry("1180x960")
         self.minsize(450, 600)
         self.configure(bg=BG)
-        self.history = deque(maxlen=1000)
+        self.history = deque(maxlen=4000)
+        persist_enabled=collect if persist is None else persist
+        self.data_dir=Path(data_dir) if data_dir is not None else (data_directory() if persist_enabled else None)
+        self.store=HistoryStore(self.data_dir/'history.sqlite3') if persist_enabled else None
+        self.storage_error=None
+        self.restored_count=0
         self.devices, self.colors, self.available = {}, {}, set()
         self.paused, self.frozen_at, self.latest_at = False, None, None
         self.latest_wall, self.error, self.notice = None, None, None
@@ -492,10 +498,12 @@ class Dashboard(tk.Tk):
         self.refresh_status()
         self.redraw()
 
-    def accept(self, snapshot, error=None):
+    def accept(self, snapshot, error=None, save=True):
         self.error = error
         self.available = {reading.uuid for reading in snapshot.readings}
         self.history.append(snapshot)
+        if save and self.store:
+            self.store.append(snapshot,error)
         if snapshot.readings:
             self.latest_at, self.latest_wall = snapshot.stamp, snapshot.wall_time
         for reading in snapshot.readings:
@@ -513,6 +521,50 @@ class Dashboard(tk.Tk):
         self.gpu_choice.configure(values=["All GPUs"] + list(names.values()))
         self.layout_legend()
 
+    def poll_history(self):
+        if not self.store:
+            return
+        while True:
+            try:
+                kind,value=self.store.messages.get_nowait()
+            except queue.Empty:
+                break
+            if kind=='loaded':
+                # Restore old records without presenting their values as live.
+                current=list(self.history)
+                combined=sorted(value+current,key=lambda s:s.stamp)
+                available=self.available.copy()
+                latest_at,latest_wall,error=self.latest_at,self.latest_wall,self.error
+                self.history.clear()
+                latest={r.uuid:r for s in value for r in s.readings}
+                if latest:
+                    self.accept(Snapshot(0,0,tuple(latest.values())),save=False)
+                self.history.clear()
+                self.history.extend(combined)
+                self.available=available
+                self.latest_at,self.latest_wall,self.error=latest_at,latest_wall,error
+                # Live readings win over restored metadata if the driver was faster.
+                for snapshot in current:
+                    for reading in snapshot.readings:
+                        self.devices[reading.uuid]=reading
+                self.restored_count=len(value)
+            elif kind=='exported':
+                self.notice=(time.monotonic()+20,'Saved stored history to '+value)
+            elif kind=='error':
+                self.storage_error=value
+
+    def export_stored(self,uuid):
+        if not self.store:
+            raise ValueError('Stored history is not enabled in this demo/test instance.')
+        if uuid not in self.devices:
+            raise ValueError('Choose a GPU first.')
+        destination=user_path('exports')
+        path=destination/(datetime.now().strftime('%Y%m%d-%H%M%S-%f')+'-saved-history.csv')
+        self.store.export(path,uuid,gpu_labels(self.devices)[uuid])
+        self.notice=(time.monotonic()+20,'Exporting retained history in the background...')
+        self.refresh_status()
+        return path
+
     def refresh_status(self):
         stale = self.latest_at is not None and time.monotonic()-self.latest_at >= 3
         state = "PAUSED" if self.paused else "NO DATA" if self.error else "RECONNECTING" if stale else "LIVE" if self.latest_at else "CONNECTING"
@@ -527,12 +579,15 @@ class Dashboard(tk.Tk):
             status = "Waiting for the NVIDIA driver. Old values are hidden until fresh readings arrive."
         else:
             stamp = datetime.fromtimestamp(self.latest_wall).strftime("%H:%M:%S") if self.latest_wall else "—"
-            status = f"{len(self.available)} GPU(s) connected · Last update {stamp} · Pins expire as they scroll out of view · Up to 15 minutes of history in memory."
+            status = f"{len(self.available)} GPU(s) connected · Last update {stamp} · Up to 1 hour in graphs · 24 hours saved on disk (128 MB cap)."
+        if self.storage_error or (self.store and self.store.error):
+            status+=' · '+(self.storage_error or self.store.error)
         self.status.configure(text=status)
 
     def tick(self):
         self.tick_job = None
         try:
+            self.poll_history()
             while True:
                 try:
                     snapshot, error = self.collector.messages.get_nowait()
@@ -585,6 +640,8 @@ class Dashboard(tk.Tk):
             self.glass_popup.close()
         if self.collector:
             self.collector.stop.set()
+        if self.store:
+            self.store.close()
         for window in self.detached:
             window._closed = True
             if hasattr(window,"chrome"):

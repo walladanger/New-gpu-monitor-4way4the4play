@@ -344,7 +344,8 @@ class ExportMenu(GlassOverlay):
         self.gpu_top = self.gpu_title_y+18
         self.format_y = self.gpu_top+gpu_rows*37+12
         self.png_y = self.format_y+46
-        super().__init__(source.winfo_toplevel(), source, 380, self.png_y+74)
+        self.saved_enabled=getattr(controller,'store',None) is not None
+        super().__init__(source.winfo_toplevel(), source, 380, self.png_y+(114 if self.saved_enabled else 74))
         self.bind("<Button-1>", self.click)
         self.render()
 
@@ -387,6 +388,11 @@ class ExportMenu(GlassOverlay):
         draw.text((self.width/2,self.png_y+16), "Save all graphs as PNG" if len(self.charts)>1 else "Save graph as PNG",
                   fill=TEXT, font=font(12), anchor="mm")
         draw.text((16,self.png_y+52), self.status or "CSV/PDF: selected GPU and visible time range", fill=MUTED, font=font(11), anchor="lm")
+        self.saved_tile=None
+        if self.saved_enabled:
+            self.saved_tile=(16,self.png_y+68,self.width-16,self.png_y+100)
+            draw.rounded_rectangle(self.saved_tile,radius=6,fill=PANEL,outline=GRID)
+            draw.text((self.width/2,self.png_y+84),'Saved history CSV · selected GPU · last 24h',fill=TEXT,font=font(12),anchor='mm')
 
     def export_selected(self, kind, directory=None):
         if self.uuid is None:
@@ -402,6 +408,14 @@ class ExportMenu(GlassOverlay):
             return left <= event.x <= right and top <= event.y <= bottom
         if event.y < 35 and event.x > self.width-40:
             self.close()
+            return
+        if self.saved_tile and inside(self.saved_tile):
+            try:
+                self.controller.export_stored(self.uuid)
+                self.status='Exporting saved readings; see the status bar.'
+            except (OSError,ValueError,RuntimeError) as error:
+                self.status=str(error)[:52]
+            self.render()
             return
         for index, box in self.chart_tiles.items():
             if inside(box):
