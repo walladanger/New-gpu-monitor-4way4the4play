@@ -79,14 +79,25 @@ class HistoryTests(unittest.TestCase):
             path=Path(temporary)/'history.sqlite3'
             store=HistoryStore(path,max_bytes=256*1024)
             self.assertTrue(store.ready.wait(3))
-            for i in range(400):
-                value=snapshot(time.time()-400+i)
-                while not store.append(value):
-                    time.sleep(.01)
-            self.assertTrue(store.flush(10))
-            store.close()
+            # A few large records actually exceed this small database budget,
+            # without depending on hundreds of fsyncs completing in ten seconds.
+            last_wall=None
+            try:
+                for i in range(64):
+                    last_wall=time.time()-64+i
+                    value=Snapshot(12345,last_wall,(Reading('0','GPU-A','NVIDIA GeForce RTX 3090'+'x'*6500,0,None,24,41,100,310),))
+                    self.assertTrue(store.append(value))
+                self.assertTrue(store.flush(30))
+                self.assertIsNone(store.error)
+            finally:
+                store.close(timeout=30)
             self.assertLessEqual(path.stat().st_size,256*1024)
             self.assertFalse(store.thread.is_alive())
+            with closing(sqlite3.connect(path)) as connection:
+                count,latest=connection.execute('SELECT count(*),max(wall) FROM samples').fetchone()
+                self.assertGreater(count,0)
+                self.assertLess(count,64)
+                self.assertEqual(latest,last_wall)
 
     def test_invalid_sensor_payload_is_rejected(self):
         value=snapshot().readings[0].__dict__.copy()

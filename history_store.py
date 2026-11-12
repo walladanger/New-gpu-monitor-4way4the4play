@@ -112,6 +112,7 @@ class HistoryStore:
                 connection.execute('PRAGMA user_version=1')
                 connection.commit()
             page_size=connection.execute('PRAGMA page_size').fetchone()[0]
+            self.page_size=page_size
             self.page_budget=max(64,self.max_bytes//page_size)
             connection.execute(f'PRAGMA max_page_count={self.page_budget}')
             return connection
@@ -143,6 +144,22 @@ class HistoryStore:
             except (ValueError,TypeError,KeyError,RecursionError,OverflowError):
                 logging.getLogger('gpu_live_graphs').warning('Skipped an invalid archived sample')
         self.messages.put(('loaded',records))
+
+    def _make_room(self,connection,payload):
+        # Reclaim before each insert, including after a previous full-disk error.
+        # Budget payload overflow pages plus B-tree/index overhead conservatively.
+        needed=(len(payload.encode('utf-8'))+self.page_size-1)//self.page_size+4
+        while True:
+            pages=connection.execute('PRAGMA page_count').fetchone()[0]
+            free=connection.execute('PRAGMA freelist_count').fetchone()[0]
+            if pages-free+needed<=self.page_budget*.95:
+                return
+            count=connection.execute('SELECT count(*) FROM samples').fetchone()[0]
+            if not count:
+                raise ValueError('Sample cannot fit inside the history database budget')
+            with connection:
+                connection.execute('DELETE FROM samples WHERE id IN (SELECT id FROM samples ORDER BY wall,id LIMIT ?)',
+                                   (max(1,min(1000,count//10)),))
 
     def _export(self,connection,path,uid,name):
         anchor=(time.monotonic(),time.time())
@@ -201,6 +218,7 @@ class HistoryStore:
                                 raise ValueError('Snapshot exceeds the archive record limit')
                             if count%30==0:
                                 self._trim(connection)
+                            self._make_room(connection,payload)
                             with connection:
                                 connection.execute('INSERT INTO samples(session,wall,payload,error) VALUES(?,?,?,?)',
                                                    (self.session,snapshot.wall_time,payload,error))

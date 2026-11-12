@@ -3,6 +3,7 @@
 ## Automated checks
 
 - The local suite covers the original controls and new history/preferences behavior, including transient I/O recovery. The final workflow result records the release's complete test run.
+- A hosted Python 3.11 run exposed a timeout in an fsync-heavy burst test. The check now uses fewer, larger records to force actual budget pressure, always closes its writer, and verifies that new samples continue after eviction. The writer reclaims space proactively before inserts rather than relying only on periodic trimming.
 - History checks include restart, clock rebasing, precision, measured zero versus missing values, retention, selected-GPU CSV, a database size limit, and malformed-database preservation.
 - Preference checks include interrupted replacement, invalid-file backup, future-schema preservation, GPU discovery-order changes, duplicate-card naming, detached views, and off-screen bounds.
 - The frozen self-test exercises four graphs, maximize/restore, pins/popout, all three export formats, and history/preferences restart.
