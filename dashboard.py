@@ -20,8 +20,9 @@ from controls import DarkSelect, QuickMenu, ExportMenu, SlimScrollbar
 from exporting import visible_records, export_csv, export_pdf
 from ambient_theme import AmbientTheme
 from window_chrome import WindowChrome
+from app_paths import user_path
+from version import VERSION
 
-VERSION = "0.4.1"
 WINDOWS = {"1 minute": 60, "5 minutes": 300, "15 minutes": 900}
 
 
@@ -228,7 +229,7 @@ class Chart(tk.Frame):
         records = visible_records(history, uuid, left, right)
         if not records:
             raise ValueError("No recorded samples in the visible range.")
-        destination = Path(directory) if directory else Path(__file__).resolve().parent / "exports"
+        destination = Path(directory) if directory else user_path('exports')
         destination.mkdir(exist_ok=True)
         name = self.names[uuid]
         filename = "".join(c if c.isalnum() else "-" for c in name).strip("-")
@@ -567,7 +568,7 @@ class Dashboard(tk.Tk):
             for index, image in enumerate(images):
                 output.paste(image, (12+(index%columns)*(cell_width+12), 12+(index//columns)*(cell_height+12)))
             try:
-                destination = Path(directory) if directory else Path(__file__).resolve().parent / "captures"
+                destination = Path(directory) if directory else user_path('captures')
                 destination.mkdir(exist_ok=True)
                 path = destination / (datetime.now().strftime("GPU-Graphs-%Y%m%d-%H%M%S-%f") + ".png")
                 output.save(path)
@@ -605,4 +606,8 @@ def main():
             ctypes.windll.shcore.SetProcessDpiAwareness(1)
         except (AttributeError, OSError):
             pass
+    if '--self-test' in sys.argv:
+        from self_test import run
+        index=sys.argv.index('--self-test')
+        raise SystemExit(run(Path(sys.argv[index+1])))
     Dashboard().mainloop()

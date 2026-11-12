@@ -35,6 +35,31 @@ jobs:
         if: matrix.python == '3.14'
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: GPU-Live-Graphs-0.4.1-source
+          name: GPU-Live-Graphs-source
           path: dist/*
+          if-no-files-found: error
+  windows-package:
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: '3.11'
+      - name: Install build dependencies
+        run: python -m pip install -r requirements-build.txt
+      - name: Build portable app and per-user installer
+        run: ./tools/build_windows.ps1
+      - name: Verify frozen launch, installation, and uninstallation
+        run: ./tools/check_windows_package.ps1
+      - name: Upload Windows packages and verification reports
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: GPU-Live-Graphs-Windows-x64
+          path: |
+            dist/*-Windows-x64.zip
+            dist/*-Setup.exe
+            dist/SHA256SUMS-Windows.txt
+            dist/*-test.json
           if-no-files-found: error

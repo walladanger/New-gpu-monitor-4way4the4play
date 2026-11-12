@@ -2,11 +2,14 @@
 from pathlib import Path
 import hashlib
 import zipfile
+import sys
 
 root=Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(root))
+from version import VERSION
 destination=root/'dist'
 destination.mkdir(exist_ok=True)
-archive=destination/'GPU-Live-Graphs-0.4.1-source.zip'
+archive=destination/f'GPU-Live-Graphs-{VERSION}-source.zip'
 excluded={'.git','__pycache__','.venv','logs','captures','exports','dist','build'}
 with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED) as output:
     for file in sorted(root.rglob('*')):

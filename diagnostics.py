@@ -5,6 +5,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 from pathlib import Path
+from app_paths import user_path
 import sys
 import threading
 
@@ -16,8 +17,7 @@ def configure_logging():
     global _configured,_native_file
     if _configured:
         return
-    directory=Path(__file__).resolve().parent/'logs'
-    directory.mkdir(exist_ok=True)
+    directory=user_path('logs')
     logger=logging.getLogger('gpu_live_graphs')
     logger.setLevel(logging.INFO)
     handler=RotatingFileHandler(directory/'app.log',maxBytes=1_000_000,backupCount=2,encoding='utf-8')
