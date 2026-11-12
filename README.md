@@ -8,6 +8,7 @@
 ![Python](https://img.shields.io/badge/Python-3.11%2B-37DFD0?style=flat-square)
 ![Version](https://img.shields.io/badge/App-0.4.1-FFBD69?style=flat-square)
 ![Telemetry](https://img.shields.io/badge/Telemetry-NVIDIA%20nvidia--smi-9CE583?style=flat-square)
+[![Windows checks](https://github.com/walladanger/New-gpu-monitor-4way4the4play/actions/workflows/windows-checks.yml/badge.svg)](https://github.com/walladanger/New-gpu-monitor-4way4the4play/actions/workflows/windows-checks.yml)
 
 [Get started](#get-started) · [Feature tour](#feature-tour) · [User guide](docs/USER-GUIDE.md) · [Roadmap](ROADMAP.md)
 
@@ -154,6 +155,6 @@ python tools/capture_screenshots.py
 python tools/check_docs.py
 ```
 
-The screenshot tool opens **its own demo instance**, queries no GPU, and captures only that instance's windows. Windows-specific checks require a Windows desktop session.
+The screenshot tool opens **its own demo instance**, queries no GPU, and captures only that instance's windows. Windows-specific checks require a Windows desktop session. The [Windows workflow](https://github.com/walladanger/New-gpu-monitor-4way4the4play/actions/workflows/windows-checks.yml) runs checks on Python 3.11 and 3.14 and attaches a source ZIP plus SHA-256 checksum to successful runs; this is a source package, not a bundled executable.
 
 [User guide](docs/USER-GUIDE.md) · [Screenshot walkthrough](docs/FEATURE-TOUR.md) · [Design findings](docs/DESIGN-REVIEW.md) · [Contributing](CONTRIBUTING.md) · [License](LICENSE)

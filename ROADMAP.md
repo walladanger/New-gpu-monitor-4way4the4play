@@ -14,6 +14,7 @@ Reviewed November 12, 2026 against standalone Python **0.4.1**. This roadmap bel
 - [x] Pause, CSV/PDF exports, and graph PNG capture.
 - [x] Stale/error states, sampling retries, redraw recovery, local crash logs.
 - [x] GitHub landing page, six real-UI demo captures, and feature walkthrough.
+- [x] Windows CI on Python 3.11 and 3.14, with source ZIP and SHA-256 artifact.
 
 ## P0 · Confidence before expansion
 
@@ -22,7 +23,7 @@ Reviewed November 12, 2026 against standalone Python **0.4.1**. This roadmap bel
 | Investigate abrupt exits | Reproduce or obtain useful logs; identify and verify a cause | Open; resize fixed, abrupt exit not reproduced |
 | Hardware soak test | Several hours of idle/load/transitions on dual 3090 + 4070; no unbounded memory growth or lost refresh | Not yet run |
 | Multi-monitor/DPI matrix | All grips, monitor moves, maximize, minimize/restore, and missing-display recovery pass on mixed DPI | Basic controls checked; full matrix pending |
-| Windows CI | Tests run and a source ZIP is produced from the same commit | Workflow prepared; hosted result pending |
+| Windows CI | Tests run and a source ZIP is produced from the same commit | Passed on Python 3.11 and 3.14; source/checksum artifact uploaded |
 | Release qualification | Versioned notes, checksums, clean-machine launch, and dependency review | Pending |
 
 **Recommended next feature:** saved preferences after the stability checks. It improves every launch without introducing another telemetry backend.
