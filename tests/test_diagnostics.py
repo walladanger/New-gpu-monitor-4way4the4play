@@ -39,7 +39,8 @@ class DiagnosticsTests(unittest.TestCase):
             self.assertIn('last event',text)
             self.assertIn('phase=shutdown',text)
             second=self.run_session(folder)
-            self.assertEqual(Path(second['folder']),destination)
+            # Windows runners may supply TEMP using its 8.3 alias; compare identity.
+            self.assertTrue(Path(second['folder']).samefile(destination))
             self.assertNotEqual(Path(second['path']).name,copied.name)
 
     def test_unavailable_folder_falls_back_and_records_reason(self):
