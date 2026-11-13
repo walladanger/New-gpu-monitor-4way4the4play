@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.0 preview — November 13, 2026
+
+- Keep GPU buttons mapped during refresh so presses survive a redraw.
+- Draw graphs on a bounded background worker; apply Tk images on the input thread and discard stale appearance frames.
+- Defer worker-triggered cleanup of Tk images/variables to their owning UI thread, repairing a reproduced resize/reopen deadlock.
+- Accept clicks on visible line segments, selecting actual recorded samples rather than interpolated values.
+- Add default-on global GPU settings across main/detached windows, optional local edits, and a transparency slider.
+- Save global scope, transparency and per-window relative/clock axis choices.
+- Add a small circled clock toggle with aligned local timestamps, including seconds for shorter ranges and dates across midnight.
+- Expand History to nine ranges from 30 seconds through one hour; use 50% tinted, locally blurred menus.
+- Start unique session/native-fault logs before GUI imports, with dashboard folder selection and open-log controls.
+- Refresh eight actual-UI screenshots using explicitly synthetic readings.
+- Further long workload and mixed-DPI qualification remains open.
+
 ## 0.5.0 preview · November 12, 2026
 
 - Add a portable Windows x64 app and per-user installer with install/uninstall verification.

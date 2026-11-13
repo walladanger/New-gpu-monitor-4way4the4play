@@ -4,6 +4,7 @@ Windows PrintWindow targets the application HWND; no desktop crop, other apps,
 driver query or real workload is captured. Run from the project root.
 """
 from pathlib import Path
+from datetime import datetime
 import ctypes
 from ctypes import wintypes
 import math
@@ -16,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PIL import Image
 from dashboard import Dashboard
 from gpu_data import Reading, Snapshot
-from controls import QuickMenu
+from controls import QuickMenu,SelectMenu
 
 
 def pump(app, seconds=.4):
@@ -93,7 +94,7 @@ def populate(app):
             power=17+load*(2.82 if gpu<2 else 1.65)+6*math.sin(i*.23)
             readings.append(Reading(str(gpu),f'DEMO-{gpu}','NVIDIA GeForce RTX 3090' if gpu<2 else 'NVIDIA GeForce RTX 4070',
                                     round(load,2),round(memory,3),24 if gpu<2 else 12,round(temp,2),round(power,2),310 if gpu<2 else 200))
-        app.accept(Snapshot(now-299+i,1794484800-299+i,tuple(readings)))
+        app.accept(Snapshot(now-299+i,datetime(2026,11,13,10,32).timestamp()-299+i,tuple(readings)))
     app.paused=True
     app.frozen_at=now
     app.window_choice.set('5 minutes')
@@ -117,6 +118,8 @@ def main():
 
         chart=app.charts[0]
         chart.focused_uuid='DEMO-1'
+        app.apply_gpu_setting(chart,'DEMO-1','styles','Gradient')
+        app.apply_gpu_setting(chart,'DEMO-1','opacity',.7)
         pump(app)
         menu=QuickMenu(chart,'DEMO-1',chart.value_labels['DEMO-1'])
         pump(app)
@@ -144,6 +147,19 @@ def main():
         capture(app,output/'04-zoomed-history.png')
         for item in app.charts:
             item.view.zoom=1.0
+
+        chart.time_mode='clock'
+        pump(app)
+        menu=SelectMenu(app.window_choice)
+        capture(app,output/'07-clock-history.png')
+        menu.close()
+
+        # Diagnostics demo stays inside ignored build output; no real settings are changed.
+        os.environ['GPU_LIVE_GRAPHS_DATA_DIR']=str(Path(__file__).resolve().parents[1]/'build'/'documentation-session')
+        menu=app.open_settings()
+        menu.path.set('D:\\DEBUGGING LOGS')
+        capture(app,output/'08-session-settings.png')
+        menu.close()
 
         app.geometry('760x1100+40+40')
         pump(app)

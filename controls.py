@@ -1,9 +1,10 @@
 """Dark selectors, slim scrollbars and frosted menus painted from app content."""
+from ui_resources import PhotoImage,StringVar
 import colorsys
 import tkinter as tk
 from tkinter import font as tkfont
 
-from PIL import Image, ImageDraw, ImageFilter, ImageTk
+from PIL import Image, ImageDraw, ImageFilter
 
 from chart_view import LINE_STYLES, normalize_color
 from graph_scene import BG, PANEL, TEXT, MUTED, GRID, font, shade_area, dashed_series
@@ -88,7 +89,7 @@ class GlassOverlay(tk.Canvas):
             return
         original = backdrop(self.root, self.x, self.y, self.width, self.height)
         blurred = original.filter(ImageFilter.GaussianBlur(12)).convert("RGBA")
-        glass = Image.alpha_composite(blurred, Image.new("RGBA", blurred.size, (8, 12, 19, 198))).convert("RGB")
+        glass = Image.alpha_composite(blurred, Image.new("RGBA", blurred.size, (8, 12, 19, 128))).convert("RGB")
         mask = Image.new("L", glass.size, 0)
         ImageDraw.Draw(mask).rounded_rectangle((0, 0, self.width-1, self.height-1), radius=12, fill=255)
         original.paste(glass, (0, 0), mask)
@@ -96,7 +97,7 @@ class GlassOverlay(tk.Canvas):
         draw.rounded_rectangle((0, 0, self.width-1, self.height-1), radius=12, outline="#49566a")
         self.surface = original
         self.paint(draw)
-        self.photo = ImageTk.PhotoImage(original, master=self)
+        self.photo = PhotoImage(original, master=self)
         self.itemconfigure(self.item, image=self.photo)
 
     def close(self):
@@ -209,7 +210,7 @@ class DarkSelect(tk.Frame):
         draw.text((11, height/2), value, fill=TEXT, font=face, anchor="lm")
         draw.line((width-23, height/2-2, width-18, height/2+3, width-13, height/2-2), fill=MUTED, width=2)
         self.canvas.backdrop_image = image
-        self.photo = ImageTk.PhotoImage(image, master=self.canvas)
+        self.photo = PhotoImage(image, master=self.canvas)
         self.canvas.delete("all")
         self.canvas.create_image(0, 0, anchor="nw", image=self.photo)
 
@@ -218,8 +219,8 @@ class QuickMenu(GlassOverlay):
     def __init__(self, chart, uuid, source):
         self.chart, self.uuid, self.status, self.sliding = chart, uuid, "", False
         self.style_tiles = {}
-        super().__init__(chart.winfo_toplevel(), source, 350, 304)
-        self.hex_value = tk.StringVar(self, value=chart.series_color(uuid).upper())
+        super().__init__(chart.winfo_toplevel(), source, 350, 366)
+        self.hex_value = StringVar(self, value=chart.series_color(uuid).upper())
         self.hex_entry = tk.Entry(self, textvariable=self.hex_value, width=9, justify="center",
                                   bg=PANEL, fg=chart.series_color(uuid), insertbackground=TEXT,
                                   selectbackground="#30465d", selectforeground=TEXT,
@@ -231,7 +232,7 @@ class QuickMenu(GlassOverlay):
         self.hex_entry.bind("<FocusOut>", lambda _: self.apply_hex())
         self.bind("<Button-1>", self.click)
         self.bind("<B1-Motion>", self.motion)
-        self.bind("<ButtonRelease-1>", lambda _: setattr(self, "sliding", False))
+        self.bind("<ButtonRelease-1>", self.release)
         self.render()
 
     def preview_hex(self, *_):
@@ -242,9 +243,8 @@ class QuickMenu(GlassOverlay):
         except ValueError:
             return  # Partial input is expected while typing; keep the last valid color.
         if color != self.chart.series_color(self.uuid).upper():
-            self.chart.series_colors[self.uuid] = color
+            self.chart.controller.apply_gpu_setting(self.chart,self.uuid,'colors',color)
             self.status = ""
-            self.chart.refresh()
         self.hex_entry.configure(highlightbackground=GRID)
         self.render()
 
@@ -272,7 +272,8 @@ class QuickMenu(GlassOverlay):
         color = self.chart.series_color(self.uuid)
         draw.text((16, 19), self.chart.names.get(self.uuid, "GPU"), fill=color, font=font(15, True), anchor="lm")
         draw.text((self.width-20, 19), "×", fill=MUTED, font=font(19), anchor="mm")
-        draw.text((16, 43), self.chart.title+" · this graph only", fill=MUTED, font=font(12), anchor="lm")
+        scope='all data windows' if self.chart.controller.global_gpu_settings.get() else 'this data window only'
+        draw.text((16, 43), scope, fill=MUTED, font=font(12), anchor="lm")
         draw.text((16, 71), "Color", fill=TEXT, font=font(12), anchor="lm")
         if hasattr(self, "hex_entry"):
             self.hex_entry.configure(fg=color, insertbackground=TEXT)
@@ -306,7 +307,15 @@ class QuickMenu(GlassOverlay):
                 painter.line(points, fill=color, width=2)
             self.surface.paste(preview, (left+6,top+4))
             draw.text(((left+right)/2, bottom-10), kind, fill=TEXT if chosen else MUTED, font=font(12), anchor="mm")
-        draw.text((16, 282), self.status or "Type a hex color · Enter to confirm", fill=MUTED, font=font(11), anchor="lm")
+        transparency=1-self.chart.series_opacity.get(self.uuid,1)
+        draw.text((16,276),f'Transparency  {transparency:.0%}',fill=TEXT,font=font(12),anchor='lm')
+        draw.rounded_rectangle((16,296,self.width-16,304),radius=4,fill=GRID)
+        x=16+transparency*(self.width-32)
+        draw.rounded_rectangle((16,296,max(20,x),304),radius=4,fill=color)
+        draw.ellipse((x-6,294,x+6,306),fill=TEXT,outline=BG)
+        draw.text((16,321),'Opaque',fill=MUTED,font=font(10),anchor='lm')
+        draw.text((self.width-16,321),'Transparent',fill=MUTED,font=font(10),anchor='rm')
+        draw.text((16,346),self.status or 'Type a hex color · Enter to confirm',fill=MUTED,font=font(11),anchor='lm')
 
     def color_at(self, x):
         hue = max(0, min(1, (x-16)/(self.width-32)))
@@ -317,19 +326,38 @@ class QuickMenu(GlassOverlay):
         if event.y < 34 and event.x > self.width-40:
             self.close()
         elif 82 <= event.y <= 110:
-            self.sliding = True
+            self.sliding = 'color'
+            self.grab_set()
             self.color_at(event.x)
+        elif 288 <= event.y <= 314:
+            self.sliding='opacity'
+            self.grab_set()
+            self.opacity_at(event.x)
         else:
             for kind, (left,top,right,bottom) in self.style_tiles.items():
                 if left <= event.x <= right and top <= event.y <= bottom:
-                    self.chart.line_styles[self.uuid] = kind
-                    self.chart.refresh()
+                    self.chart.controller.apply_gpu_setting(self.chart,self.uuid,'styles',kind)
                     self.render()
                     break
 
     def motion(self, event):
-        if self.sliding:
+        if self.sliding=='color':
             self.color_at(event.x)
+        elif self.sliding=='opacity':
+            self.opacity_at(event.x)
+
+    def opacity_at(self,x):
+        transparency=max(0,min(1,(x-16)/(self.width-32)))
+        self.chart.controller.apply_gpu_setting(self.chart,self.uuid,'opacity',1-transparency)
+        self.render()
+
+    def release(self,event):
+        if self.sliding:
+            self.motion(event)
+            self.sliding=False
+            self.grab_release()
+            import logging
+            logging.getLogger('gpu_live_graphs').info('GPU appearance changed gpu=%s global=%s',self.uuid,self.chart.controller.global_gpu_settings.get())
 
 
 class ExportMenu(GlassOverlay):
@@ -498,3 +526,4 @@ class SlimScrollbar(tk.Canvas):
         travel = max(1, self.length()-size)
         fraction = (point-self.grab_offset)/travel*(1-(self.last-self.first))
         self.command("moveto", max(0, min(1-(self.last-self.first), fraction)))
+

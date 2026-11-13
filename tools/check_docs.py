@@ -26,4 +26,5 @@ for image in (root/'docs'/'images').glob('*.png'):
 ET.parse(root/'docs'/'images'/'banner.svg')
 if errors:
     print('\n'.join(errors));sys.exit(1)
-print(f'Checked {len(documents)} documents, six PNG captures, and SVG banner.')
+captures=len(list((root/'docs'/'images').glob('*.png')))
+print(f'Checked {len(documents)} documents, {captures} PNG captures, and SVG banner.')

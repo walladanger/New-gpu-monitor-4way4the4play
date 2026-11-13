@@ -1,13 +1,13 @@
-# Install GPU Live Graphs 0.5.0
+# Install GPU Live Graphs 0.6.0
 
 ## Download
 
-Open the [0.5.0 preview release](https://github.com/walladanger/New-gpu-monitor-4way4the4play/releases/tag/v0.5.0).
+Open the [0.6.0 preview release](https://github.com/walladanger/New-gpu-monitor-4way4the4play/releases/tag/v0.6.0).
 
 | File | Use |
 | --- | --- |
-| `GPU-Live-Graphs-0.5.0-Setup.exe` | Per-user installation, shortcuts, and uninstall support |
-| `GPU-Live-Graphs-0.5.0-Windows-x64.zip` | Portable application folder; extract everything before launching |
+| `GPU-Live-Graphs-0.6.0-Setup.exe` | Per-user installation, shortcuts, and uninstall support |
+| `GPU-Live-Graphs-0.6.0-Windows-x64.zip` | Portable application folder; extract everything before launching |
 | `SHA256SUMS-Windows.txt` | SHA-256 checksums for both packages |
 
 These packages include Python, Tk, and Pillow. An NVIDIA driver providing `nvidia-smi` is required; Python, a CUDA Toolkit, and an API key are not. The build is currently unsigned.
@@ -29,7 +29,9 @@ Open `%LOCALAPPDATA%\GPU Live Graphs` in File Explorer:
 - `history.sqlite3`: up to 24 hours of saved query records; database cap 128 MB.
 - `preferences.json`: versioned appearance, selection, and window state.
 - `exports/` and `captures/`: user-created CSV/PDF/PNG files.
-- `logs/`: Python errors and native-fault reports.
+- `diagnostic-settings.json`: the selected session-log folder.
+
+Use **Settings** in the dashboard to choose where session logs go and open them. The default is `D:\DEBUGGING LOGS` when that drive exists, otherwise the data folder's `logs/`. Files have unique timestamp/PID names for each launch, plus a native-fault sibling. Changing the folder copies the current session immediately and at shutdown; the next launch starts logging there before importing the GUI. An unavailable folder falls back to local storage and records the reason.
 
 Uninstall through **Windows Settings → Apps → Installed apps → GPU Live Graphs**. The app files and shortcuts are removed; user data is retained.
 
@@ -38,7 +40,7 @@ To reset preferences without losing a backup, close the app and rename `preferen
 ## Verify a download
 
 ```powershell
-Get-FileHash .\GPU-Live-Graphs-0.5.0-Setup.exe -Algorithm SHA256
+Get-FileHash .\GPU-Live-Graphs-0.6.0-Setup.exe -Algorithm SHA256
 ```
 
 Compare the value with the release's checksum file.

@@ -108,6 +108,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIsNotNone(app.tick_job)
 
     def test_name_buttons_toggle_per_graph_focus(self):
+        self.app.global_gpu_settings.set(False)
         chart = self.app.charts[0]
         chart.value_labels["GPU-1"].invoke()
         self.assertEqual(chart.focused_uuid, "GPU-1")
@@ -119,6 +120,7 @@ class DashboardTests(unittest.TestCase):
         self.assertTrue(all(c.focused_uuid=="GPU-0" for c in self.app.charts))
 
     def test_quick_menu_changes_only_the_clicked_graph(self):
+        self.app.global_gpu_settings.set(False)
         chart = self.app.charts[0]
         chart.value_labels["GPU-1"].invoke()
         menu = self.app.glass_popup
@@ -190,7 +192,7 @@ class DashboardTests(unittest.TestCase):
     def test_dark_selector_commits_selection_and_closes(self):
         self.assertIsInstance(self.app.window_choice, DarkSelect)
         menu = SelectMenu(self.app.window_choice)
-        menu.choose(1)
+        menu.choose(list(self.app.window_choice.cget('values')).index('5 minutes'))
         self.assertEqual(self.app.window_choice.get(), "5 minutes")
         self.assertIsNone(self.app.glass_popup)
         self.assertEqual(self.app.charts[0].popout.cget("text"), "")

@@ -3,12 +3,13 @@
 No Python callback is installed into the Win32 window procedure. Windows calls
 are limited to style flags, monitor bounds, placement and minimize/restore.
 """
+from ui_resources import PhotoImage
 import ctypes
 import os
 import tkinter as tk
 from ctypes import wintypes
 
-from PIL import Image,ImageDraw,ImageTk
+from PIL import Image,ImageDraw
 
 BG,TEXT,MUTED = "#10151d","#e9eff7","#9baabe"
 
@@ -78,7 +79,7 @@ class WindowChrome:
             control=tk.Button(self.controls,text="",bg=BG,relief="flat",borderwidth=0,highlightthickness=0,
                               padx=8,pady=6,cursor="hand2",command=action,
                               activebackground="#56313c" if kind=="close" else "#253145")
-            control.icon=ImageTk.PhotoImage(image,master=window)
+            control.icon=PhotoImage(image,master=window)
             control.configure(image=control.icon)
             control.pack(side="left",padx=1)
             self.buttons[kind]=control
@@ -317,3 +318,4 @@ class WindowChrome:
         self.window.unbind("<Map>",self.map_binding)
         self.window.unbind("<Configure>",self.configure_binding)
         self.native=False
+

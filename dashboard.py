@@ -11,7 +11,7 @@ import sys
 import time
 import tkinter as tk
 
-from PIL import Image, ImageDraw, ImageTk
+from PIL import Image, ImageDraw
 
 from gpu_data import Collector, METRICS, PinStore, Snapshot, panel_columns, gpu_labels
 from graph_scene import BG, PANEL, TEXT, MUTED, GRID, COLORS, font, render_graph
@@ -24,8 +24,12 @@ from app_paths import user_path, data_directory
 from history_store import HistoryStore
 from preferences import Preferences
 from version import VERSION
+from render_pipeline import RenderPipeline
+from ui_resources import PhotoImage,BooleanVar,drain_resources
+from chart_view import normalize_color, LINE_STYLES
 
-WINDOWS = {"1 minute": 60, "5 minutes": 300, "15 minutes": 900, "1 hour": 3600}
+WINDOWS = {"30 seconds":30,"1 minute":60,"2 minutes":120,"5 minutes":300,"10 minutes":600,
+           "15 minutes":900,"30 minutes":1800,"45 minutes":2700,"1 hour":3600}
 
 
 def button(parent, text, command):
@@ -45,8 +49,21 @@ def popout_button(parent, command):
                           (4/3, 0, -icon.width/6, 0, 4/3, -icon.height/6),
                           resample=Image.Resampling.BICUBIC)
     control = button(parent, "", command)
-    control.icon = ImageTk.PhotoImage(icon, master=parent)
+    control.icon = PhotoImage(icon, master=parent)
     control.configure(image=control.icon, padx=5, pady=2)
+    return control
+
+
+def clock_button(parent, command):
+    icon = Image.new('RGBA',(88,88))
+    draw = ImageDraw.Draw(icon)
+    draw.ellipse((9,9,79,79),fill='#c9cdd4',outline='#080c12',width=4)
+    draw.line((44,24,44,44,59,51),fill='#080c12',width=4)
+    for box in ((43,15,45,20),(68,43,73,45),(43,68,45,73),(15,43,20,45)):
+        draw.rectangle(box,fill='#080c12')
+    control=button(parent,'Switch relative / exact local time',command)
+    control.icon=PhotoImage(icon.resize((22,22),Image.Resampling.LANCZOS),master=parent)
+    control.configure(image=control.icon,padx=3,pady=2)
     return control
 
 
@@ -64,6 +81,9 @@ class Chart(tk.Frame):
         self.series_colors, self.line_styles, self.names = {}, {}, {}
         self.view = TimeView()
         self.rendered_bounds = None
+        self.scene_context = None
+        self.series_opacity = {}
+        self.time_mode = "relative"
         self.text_scale = max(1, min(2, float(self.tk.call("tk", "scaling")) / (96/72)))
         heading = tk.Frame(self, bg=PANEL)
         heading.pack(fill="x", padx=20, pady=(16, 0))
@@ -76,6 +96,8 @@ class Chart(tk.Frame):
             self.popout.pack(side="right", padx=(6, 0))
         button(actions, "+", lambda: self.zoom_by(1.25)).pack(side="right", padx=1)
         button(actions, "−", lambda: self.zoom_by(1/1.25)).pack(side="right", padx=1)
+        self.clock_button = clock_button(actions, self.toggle_time_mode)
+        self.clock_button.pack(side="right", padx=3)
         self.zoom_reset = button(actions, "1×", self.reset_zoom)
         self.zoom_reset.configure(padx=6)
         self.zoom_reset.pack(side="right", padx=(6, 0))
@@ -96,12 +118,19 @@ class Chart(tk.Frame):
         self.canvas.bind("<MouseWheel>", self.wheel)
         self.canvas.bind("<Motion>", self.pointer)
 
+    def toggle_time_mode(self):
+        self.time_mode = "clock" if self.time_mode == "relative" else "relative"
+        logging.getLogger("gpu_live_graphs").info("Time axis metric=%s mode=%s", self.key, self.time_mode)
+        self.refresh()
+
     def pointer(self, event):
         if self.scene:
-            cursor = "hand2" if self.scene.nearest(event.x, event.y) or self.scene.over_inspector(event.x, event.y) else ""
-            self.canvas.configure(cursor=cursor)
+            cursor = "hand2" if self.scene.over_inspector(event.x, event.y) or self.scene.nearest(event.x, event.y) else ""
+            if self.canvas.cget("cursor") != cursor:
+                self.canvas.configure(cursor=cursor)
 
     def left_click(self, event):
+        logging.getLogger("gpu_live_graphs").info("Graph click metric=%s x=%s y=%s",self.key,event.x,event.y)
         if not self.scene:
             return
         if self.scene.over_inspector(event.x, event.y):
@@ -116,13 +145,18 @@ class Chart(tk.Frame):
         if point:
             pin = self.pins.add(point.snapshot, point.uuid)
             self.active_pin = pin.label
+            logging.getLogger("gpu_live_graphs").info("Pinned metric=%s gpu=%s timestamp=%.6f",self.key,point.uuid,point.snapshot.wall_time)
+            self.canvas.create_oval(point.x-5,point.y-5,point.x+5,point.y+5,outline=TEXT,width=2,tags="pending-pin")
             self.row_offset = 10**9  # Reveal the newly pinned sample and its comparison.
             self.refresh()
+        else:
+            logging.getLogger('gpu_live_graphs').info('Graph click missed metric=%s',self.key)
 
     def right_click(self, event):
         if self.scene:
             label = self.scene.pin_at(event.x, event.y)
             if label:
+                logging.getLogger('gpu_live_graphs').info('Pin removed metric=%s pin=%s',self.key,label)
                 self.pins.remove(label)
                 if self.active_pin == label:
                     self.active_pin = None
@@ -167,14 +201,14 @@ class Chart(tk.Frame):
             self.render(*self.last_context)
 
     def focus_gpu(self, uuid):
-        self.focused_uuid = None if self.focused_uuid == uuid else uuid
+        target = None if self.focused_uuid == uuid else uuid
+        targets = self.controller.all_charts() if self.controller.global_gpu_settings.get() else [self]
+        for chart in targets:
+            chart.focused_uuid = target
+        logging.getLogger('gpu_live_graphs').info('GPU button metric=%s gpu=%s global=%s',self.key,uuid,self.controller.global_gpu_settings.get())
+        self.controller.schedule_redraw()
         self.refresh()
-        root = self.winfo_toplevel()
-        popup = getattr(root, "glass_popup", None)
-        if popup:
-            popup.close()
-        if self.focused_uuid:
-            QuickMenu(self, uuid, self.value_labels[uuid])
+        QuickMenu(self, uuid, self.value_labels[uuid])
 
     def series_color(self, uuid):
         return self.series_colors.get(uuid, self.controller.colors.get(uuid, COLORS[0]))
@@ -183,7 +217,6 @@ class Chart(tk.Frame):
         self.last_context = (history, devices, colors, selected, seconds, now, available)
         self.pins.expire(now, seconds)
         left, right = self.view.bounds(seconds, now)
-        self.rendered_bounds = (left, right)
         self.time_scrollbar.set(*self.view.fractions(seconds))
         self.zoom_reset.configure(text="1×" if self.view.zoom==1 else f"{self.view.zoom:.1f}×")
         colors = {uuid: self.series_colors.get(uuid, color) for uuid, color in colors.items()}
@@ -191,8 +224,9 @@ class Chart(tk.Frame):
         names = gpu_labels(devices)
         self.names = names
         focus = self.focused_uuid if self.focused_uuid in ids else None
-        for label in self.value_labels.values():
-            label.grid_forget()
+        for uid,label in self.value_labels.items():
+            if uid not in ids and label.winfo_manager():
+                label.grid_forget()
         # Model names need wider cells than numerical driver indexes.
         label_width = max([self.value_labels[uid].winfo_reqwidth()+20 for uid in ids if uid in self.value_labels] + [195])
         columns = max(1, self.values.winfo_width() // label_width)
@@ -205,28 +239,49 @@ class Chart(tk.Frame):
                                                   font=("Segoe UI", 11, "bold"))
             current = getattr(devices[uid], self.key) if uid in available else None
             value = "—" if current is None else f"{current:.1f}"
-            self.value_labels[uid].configure(text=f"{names[uid]}  {value} {self.unit}",
+            configuration=(f'{names[uid]}  {value} {self.unit}',colors[uid] if not focus or focus==uid else MUTED,focus==uid)
+            if getattr(self.value_labels[uid],'_value_configuration',None)!=configuration:
+                self.value_labels[uid].configure(text=f"{names[uid]}  {value} {self.unit}",
                                              fg=colors[uid] if not focus or focus == uid else MUTED,
                                              activeforeground=colors[uid],
                                              font=("Segoe UI", 11, "bold underline" if focus == uid else "bold"))
-            self.value_labels[uid].grid(row=index//columns, column=index%columns, sticky="w", padx=(0, 20))
+                self.value_labels[uid]._value_configuration=configuration
+            position=(index//columns,index%columns)
+            if getattr(self.value_labels[uid],'_grid_position',None)!=position or not self.value_labels[uid].winfo_manager():
+                self.value_labels[uid].grid(row=position[0],column=position[1],sticky='w',padx=(0,20))
+                self.value_labels[uid]._grid_position=position
         width, height = self.canvas.winfo_width(), self.canvas.winfo_height()
         if width < 100 or height < 100:
             return
         ambient = getattr(self.winfo_toplevel(), "ambient", None)
         background = ambient.surface(width,height,PANEL,self.canvas) if ambient else None
-        self.scene = render_graph(self.key, width, height, history, devices, colors, selected,
-                                  right-left, right, self.pins.pins, self.inspector_position,
-                                  self.row_offset, self.active_pin, self.text_scale,
-                                  focus, self.line_styles, now, background)
-        self.canvas.backdrop_image = self.scene.image
-        self.photo = ImageTk.PhotoImage(self.scene.image, master=self.canvas)
-        self.canvas.itemconfigure(self.image_item, image=self.photo)
+        args = (self.key, width, height, history, devices, colors, selected,
+                right-left, right, tuple(self.pins.pins), self.inspector_position,
+                self.row_offset, self.active_pin, self.text_scale,
+                focus, self.line_styles.copy(), now, background)
+        kwargs = dict(opacities=self.series_opacity.copy(), time_mode=self.time_mode)
+        presentation = (width,height,selected,tuple(colors.items()),tuple(self.line_styles.items()),
+                        tuple(self.series_opacity.items()),self.time_mode,focus,tuple(self.pins.pins),
+                        self.inspector_position,self.row_offset,self.active_pin,self.view.zoom,self.view.lag)
+        key = (presentation,len(history),history[-1].stamp if history else None,round(right,1))
+        context = self.last_context
+        def apply(scene):
+            self.scene = scene
+            self.scene_context = context
+            self.rendered_bounds = (left,right)
+            self.canvas.backdrop_image = scene.image
+            self.photo = PhotoImage(scene.image, master=self.canvas)
+            self.canvas.itemconfigure(self.image_item, image=self.photo)
+            self.canvas.delete('pending-pin')
+        if self.controller.async_render:
+            self.controller.queue_frame(self,key,presentation,args,kwargs,apply)
+        else:
+            apply(render_graph(*args,**kwargs))
 
     def export_series(self, uuid, kind, directory=None):
         if not self.last_context or not self.rendered_bounds:
             raise ValueError("Wait for the graph to render.")
-        history, devices, colors, selected, seconds, now, available = self.last_context
+        history, devices, colors, selected, seconds, now, available = self.scene_context or self.last_context
         left, right = self.rendered_bounds
         records = visible_records(history, uuid, left, right)
         if not records:
@@ -241,7 +296,7 @@ class Chart(tk.Frame):
         elif kind == "pdf":
             colors = {uid: self.series_colors.get(uid, color) for uid,color in colors.items()}
             export_pdf(path, records, uuid, self.key, devices, colors, self.line_styles,
-                       self.pins.pins, left, right, now)
+                       self.pins.pins, left, right, now, opacities=self.series_opacity, time_mode=self.time_mode)
         else:
             raise ValueError("Choose CSV or PDF.")
         self.controller.notice = (time.monotonic()+20, f"Saved {name} visible samples to {path}")
@@ -293,6 +348,8 @@ class DetachedWindow(tk.Toplevel):
         self.chart.focused_uuid = source.focused_uuid
         self.chart.series_colors = source.series_colors.copy()
         self.chart.line_styles = source.line_styles.copy()
+        self.chart.series_opacity = source.series_opacity.copy()
+        self.chart.time_mode = source.time_mode
         self.chart.view = TimeView(source.view.zoom, source.view.lag)
         self.chart.pack(fill="both", expand=True, padx=12, pady=(0, 12))
         tk.Label(self, text="Shared live data · independent GPU, history and pins · left-click a line to pin",
@@ -306,6 +363,8 @@ class DetachedWindow(tk.Toplevel):
         self._closed = True
         if getattr(self, "glass_popup", None):
             self.glass_popup.close()
+        if self.controller.render_pipeline:
+            self.controller.render_pipeline.discard(self.chart)
         self.controller.detached.remove(self)
         if hasattr(self,"chrome"):
             self.chrome.detach()
@@ -313,10 +372,19 @@ class DetachedWindow(tk.Toplevel):
 
 
 class Dashboard(tk.Tk):
-    def __init__(self, collect=True, persist=None, data_dir=None, preferences=None):
+    def __init__(self, collect=True, persist=None, data_dir=None, preferences=None, async_render=None):
         super().__init__()
         self.withdraw()
         self._closed = False
+        self.async_render = collect if async_render is None else async_render
+        self.render_pipeline = None
+        self.render_poll_job = None
+        self._last_ambient = 0
+        self.ui_stalls = 0
+        self.max_ui_delay = 0
+        self._heartbeat_at = time.monotonic()
+        self.global_gpu_settings = BooleanVar(self, True)
+        self.global_colors, self.global_styles, self.global_opacity = {}, {}, {}
         self.title(f"GPU Live Graphs {VERSION}")
         self.geometry("1180x960")
         self.minsize(450, 600)
@@ -370,7 +438,7 @@ class Dashboard(tk.Tk):
         self.actions.grid(row=0, column=1, sticky="e")
         self.export_button = button(self.actions, "Export", self.open_export)
         self.export_button.pack(side="left", padx=(0, 8))
-        self.topmost = tk.BooleanVar(value=False)
+        self.topmost = BooleanVar(value=False)
         tk.Checkbutton(self.actions, text="Always on top", variable=self.topmost,
                        command=lambda: self.attributes("-topmost", self.topmost.get()), bg=BG, fg=MUTED,
                        selectcolor=PANEL, activebackground=BG, activeforeground=TEXT,
@@ -378,6 +446,11 @@ class Dashboard(tk.Tk):
         self.pause_button = button(self.actions, "Pause", self.toggle_pause)
         self.pause_button.pack(side="left")
         self.toolbar.bind("<Configure>", self.layout_toolbar)
+        options = tk.Frame(self,bg=BG)
+        options.pack(fill="x",padx=24,pady=(0,5))
+        tk.Checkbutton(options,text="Global GPU settings",variable=self.global_gpu_settings,command=self.toggle_global_gpu_settings,bg=BG,fg=MUTED,selectcolor=PANEL,activebackground=BG,activeforeground=TEXT,font=("Segoe UI",10)).pack(side="left")
+        self.settings_button=button(options,"Settings",self.open_settings)
+        self.settings_button.pack(side="right")
         self.legend = tk.Frame(self, bg=BG)
         self.legend.pack(fill="x", padx=24, pady=(0, 7))
         self.legend_labels = {}
@@ -408,6 +481,98 @@ class Dashboard(tk.Tk):
             self.preference_job=self.after(1500,self.periodic_preferences)
         if collect:
             self.tick_job = self.after(100, self.tick)
+        self.after(250,self.heartbeat)
+        logging.getLogger('gpu_live_graphs').info('phase=dashboard_ready async_render=%s',self.async_render)
+
+    def heartbeat(self):
+        drain_resources()
+        from diagnostics import pulse
+        pulse()
+        now=time.monotonic()
+        delay=max(0,now-self._heartbeat_at-.25)
+        self.max_ui_delay=max(self.max_ui_delay,delay)
+        if delay>.1:
+            self.ui_stalls+=1
+            logging.getLogger('gpu_live_graphs').warning('UI delay %.3fs',delay)
+        self._heartbeat_at=now
+        if not self._closed:
+            self.after(250,self.heartbeat)
+
+    def all_charts(self):
+        return self.charts+[window.chart for window in self.detached]
+
+    def sync_global_settings(self):
+        for chart in self.all_charts():
+            chart.series_colors=dict(self.global_colors)
+            chart.line_styles=dict(self.global_styles)
+            chart.series_opacity=dict(self.global_opacity)
+        self.colors.update(self.global_colors)
+        for uid,label in self.legend_labels.items():
+            label.configure(fg=self.colors[uid])
+
+    def toggle_global_gpu_settings(self):
+        if self.global_gpu_settings.get():
+            self.sync_global_settings()
+        logging.getLogger('gpu_live_graphs').info('Global GPU settings=%s',self.global_gpu_settings.get())
+        self.schedule_redraw()
+
+    def apply_gpu_setting(self,chart,uuid,kind,value):
+        if kind=='colors':
+            value=normalize_color(value)
+            attribute,canonical='series_colors',self.global_colors
+        elif kind=='styles':
+            if value not in LINE_STYLES:
+                raise ValueError('Unknown line style')
+            attribute,canonical='line_styles',self.global_styles
+        elif kind=='opacity':
+            import math
+            value=float(value)
+            if not math.isfinite(value) or not 0<=value<=1:
+                raise ValueError('Opacity must be between zero and one')
+            attribute,canonical='series_opacity',self.global_opacity
+        else:
+            raise ValueError('Unknown GPU setting')
+        targets=self.all_charts() if self.global_gpu_settings.get() else [chart]
+        if self.global_gpu_settings.get():
+            canonical[uuid]=value
+            if kind=='colors':
+                self.colors[uuid]=value
+                if uuid in self.legend_labels:
+                    self.legend_labels[uuid].configure(fg=value)
+        for target in targets:
+            getattr(target,attribute)[uuid]=value
+        chart.refresh()
+        self.schedule_redraw()
+
+    def queue_frame(self,owner,key,presentation,args,kwargs,apply):
+        if self.render_pipeline is None:
+            self.render_pipeline=RenderPipeline()
+        self.render_pipeline.request(owner,key,presentation,render_graph,args,kwargs,apply)
+        if self.render_poll_job is None:
+            self.render_poll_job=self.after(16,self.poll_renders)
+
+    def poll_renders(self):
+        self.render_poll_job=None
+        if self._closed or self.render_pipeline is None:
+            return
+        drain_resources()
+        self.render_pipeline.poll()
+        if self.render_pipeline.busy():
+            self.render_poll_job=self.after(16,self.poll_renders)
+
+    def wait_for_renders(self,timeout=15):
+        deadline=time.monotonic()+timeout
+        # Wait for frames requested at entry (or newer), even while live sampling continues.
+        targets={owner:state['wanted_id'] for owner,state in self.render_pipeline.states.items()} if self.render_pipeline else {}
+        while self.render_pipeline and any(owner in self.render_pipeline.states and self.render_pipeline.states[owner]['done_id']<serial for owner,serial in targets.items()):
+            self.update()
+            if time.monotonic()>deadline:
+                raise TimeoutError('Graph rendering did not finish')
+            time.sleep(.005)
+
+    def open_settings(self):
+        from settings_menu import SettingsMenu
+        return SettingsMenu(self,self.settings_button)
 
     def selected_uuid(self,control):
         index=control.current()
@@ -426,12 +591,19 @@ class Dashboard(tk.Tk):
     def restore_view(self,chart,state):
         chart.series_colors=dict(state.get('colors',{}))
         chart.line_styles=dict(state.get('styles',{}))
+        chart.series_opacity=dict(state.get("opacity",{}))
+        chart.time_mode=state.get("time_mode","relative")
         chart.focused_uuid=state.get('focus')
         chart.view.zoom=state.get('zoom',1)
         chart.view.lag=state.get('lag',0)
 
     def restore_preferences(self):
         state=self.saved_preferences.get('main',{})
+        self.global_gpu_settings.set(state.get('global_gpu_settings',True))
+        canonical=self.saved_preferences.get('gpu_settings',{})
+        self.global_colors=dict(canonical.get('colors',{}))
+        self.global_styles=dict(canonical.get('styles',{}))
+        self.global_opacity=dict(canonical.get('opacity',{}))
         self.window_choice.set(state.get('history','1 minute'))
         self.pending_gpu=state.get('gpu')
         self.topmost.set(state.get('topmost',False))
@@ -451,16 +623,24 @@ class Dashboard(tk.Tk):
             if item.get('bounds'):
                 window.chrome.restore_bounds(item['bounds'],item.get('maximized',False))
 
+        if self.global_gpu_settings.get():
+            if not self.global_colors:
+                self.global_colors.update(self.charts[0].series_colors)
+                self.global_styles.update(self.charts[0].line_styles)
+                self.global_opacity.update(self.charts[0].series_opacity)
+            self.sync_global_settings()
+
     def chart_preferences(self,chart):
         colors={uid:chart.series_color(uid) for uid in self.devices}
         colors.update(chart.series_colors)
-        return {'colors':colors,'styles':chart.line_styles,'focus':chart.focused_uuid,
+        return {'colors':colors,'styles':chart.line_styles,'opacity':chart.series_opacity,'time_mode':chart.time_mode,'focus':chart.focused_uuid,
                 'zoom':chart.view.zoom,'lag':chart.view.lag}
 
     def preference_state(self):
         state={'schema':1,'main':{'bounds':list(self.chrome.preference_bounds()),'maximized':self.chrome.is_maximized(),
-               'topmost':self.topmost.get(),'gpu':getattr(self,'pending_gpu',None) or self.selected_uuid(self.gpu_choice),
+               'global_gpu_settings':self.global_gpu_settings.get(),'topmost':self.topmost.get(),'gpu':getattr(self,'pending_gpu',None) or self.selected_uuid(self.gpu_choice),
                'history':self.window_choice.get(),'charts':{c.key:self.chart_preferences(c) for c in self.charts}},'detached':[]}
+        state['gpu_settings']={'colors':self.global_colors,'styles':self.global_styles,'opacity':self.global_opacity}
         for window in self.detached:
             item=self.chart_preferences(window.chart)
             item.update(metric=window.chart.key,bounds=list(window.chrome.preference_bounds()),maximized=window.chrome.is_maximized(),
@@ -544,14 +724,16 @@ class Dashboard(tk.Tk):
         seconds = WINDOWS[window_choice.get()]
         now = self.frozen_at if self.paused else time.monotonic()
         available = self.available if self.paused or (self.latest_at and now-self.latest_at < 3) else set()
-        return self.history, self.devices, self.colors, selected, seconds, now, available
+        return tuple(self.history), self.devices.copy(), self.colors.copy(), selected, seconds, now, frozenset(available)
 
     def redraw(self):
         if self.redraw_job:
             self.after_cancel(self.redraw_job)
         self.redraw_job = None
-        for root in [self]+self.detached:
-            root.ambient.paint()
+        if time.monotonic()-self._last_ambient > 1:
+            for root in [self]+self.detached:
+                root.ambient.paint()
+            self._last_ambient=time.monotonic()
         context = self.context(self.gpu_choice, self.window_choice)
         if self.winfo_viewable():
             for chart in self.charts:
@@ -588,6 +770,8 @@ class Dashboard(tk.Tk):
 
     def accept(self, snapshot, error=None, save=True):
         selections={root:self.selected_uuid(root.gpu_choice) for root in [self]+self.detached}
+        if error!=self.error:
+            logging.getLogger('gpu_live_graphs').info('Driver status: %s',error or 'connected')
         self.error = error
         self.available = {reading.uuid for reading in snapshot.readings}
         self.history.append(snapshot)
@@ -597,7 +781,8 @@ class Dashboard(tk.Tk):
             self.latest_at, self.latest_wall = snapshot.stamp, snapshot.wall_time
         for reading in snapshot.readings:
             if reading.uuid not in self.colors:
-                self.colors[reading.uuid] = COLORS[len(self.colors)%len(COLORS)]
+                logging.getLogger('gpu_live_graphs').info('GPU detected name=%s uuid=%s',reading.name,reading.uuid)
+                self.colors[reading.uuid] = self.global_colors.get(reading.uuid,COLORS[len(self.colors)%len(COLORS)])
                 self.legend_labels[reading.uuid] = tk.Button(self.legend, bg=BG, fg=self.colors[reading.uuid],
                                                              activebackground=BG, activeforeground=TEXT,
                                                              font=("Segoe UI", 10), cursor="hand2", relief="flat",
@@ -736,6 +921,9 @@ class Dashboard(tk.Tk):
             return
         self.save_preferences()
         self._closed = True
+        logging.getLogger('gpu_live_graphs').info('Dashboard closing ui_stalls=%s max_ui_delay=%.3fs',self.ui_stalls,self.max_ui_delay)
+        if self.render_pipeline:
+            self.render_pipeline.close()
         if getattr(self, "glass_popup", None):
             self.glass_popup.close()
         if self.collector:
@@ -751,6 +939,7 @@ class Dashboard(tk.Tk):
         for job in self.tk.call("after", "info"):
             self.after_cancel(job)
         self.destroy()
+        drain_resources()
 
 
 def main():
@@ -768,3 +957,4 @@ def main():
         index=sys.argv.index('--self-test')
         raise SystemExit(run(Path(sys.argv[index+1])))
     Dashboard().mainloop()
+

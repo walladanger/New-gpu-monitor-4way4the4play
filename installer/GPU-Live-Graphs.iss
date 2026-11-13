@@ -1,6 +1,6 @@
 ; Per-user installer. Source: https://jrsoftware.org/ishelp/topic_setup_privilegesrequired.htm
 #ifndef MyAppVersion
-  #define MyAppVersion "0.5.0"
+  #define MyAppVersion "0.6.0"
 #endif
 [Setup]
 AppId={{C61F3A9C-E33F-4EEC-948F-ED08EAB114E8}

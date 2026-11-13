@@ -10,6 +10,7 @@ from datetime import datetime
 from functools import lru_cache
 import math
 import os
+import time
 from pathlib import Path
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
@@ -66,10 +67,40 @@ class Scene:
     row_count: int = 0
     scroll_max: int = 0
     scroll_offset: int = 0
+    segments: list = field(default_factory=list)
+    hit_index: dict = field(default_factory=dict)
+    preferred_uuid: str | None = None
+
+    def index_hits(self):
+        self.hit_index={}
+        for a,b in [(p,p) for p in self.points]+self.segments:
+            for bucket in range(int(min(a.x,b.x)//32),int(max(a.x,b.x)//32)+1):
+                self.hit_index.setdefault(bucket,[]).append((a,b))
 
     def nearest(self, x, y, radius=18):
-        return min((point for point in self.points if (point.x-x)**2 + (point.y-y)**2 <= radius**2),
-                   key=lambda point: (point.x-x)**2 + (point.y-y)**2, default=None)
+        candidates=[]
+        if self.hit_index:
+            for bucket in range(int((x-radius)//32),int((x+radius)//32)+1):
+                candidates.extend(self.hit_index.get(bucket,()))
+        else:
+            candidates=[(p,p) for p in self.points]+self.segments
+        best,score=None,None
+        seen=set()
+        for a,b in candidates:
+            identity=(id(a),id(b))
+            if identity in seen: continue
+            seen.add(identity)
+            dx,dy=b.x-a.x,b.y-a.y
+            length=dx*dx+dy*dy
+            fraction=max(0,min(1,((x-a.x)*dx+(y-a.y)*dy)/length)) if length else 0
+            distance=(a.x+fraction*dx-x)**2+(a.y+fraction*dy-y)**2
+            if distance>radius*radius: continue
+            point=a if fraction<=.5 else b
+            candidate=(distance,0 if point.uuid==self.preferred_uuid else 1,(point.x-x)**2+(point.y-y)**2)
+            if score is None or candidate<score:
+                best,score=point,candidate
+        return best
+
 
     def pin_at(self, x, y):
         for (left, top, right, bottom), label in self.rows:
@@ -82,6 +113,38 @@ class Scene:
     def over_inspector(self, x, y):
         return bool(self.inspector and self.inspector[0] <= x <= self.inspector[2]
                     and self.inspector[1] <= y <= self.inspector[3])
+
+
+def time_axis(history,seconds,right,clock_now=None,mode='relative'):
+    if mode!='clock':
+        ticks=[]
+        for step in range(5):
+            age=seconds*(1-step/4)+(0 if clock_now is None else clock_now-right)
+            label='now' if abs(age)<.05 else f'-{age:.3g}s' if age<60 else f'-{age/60:.3g}m'
+            ticks.append((step/4,label))
+        return ticks
+    anchor=history[-1] if history else None
+    right_wall=anchor.wall_time+(right-anchor.stamp) if anchor else time.time()+(right-time.monotonic())
+    left_wall=right_wall-seconds
+    interval=next((n for n in (.1,.2,.5,1,2,5,10,15,30,60,120,300,600,900,1800,3600) if n>=seconds/5),3600)
+    start=math.ceil(left_wall/interval)*interval
+    left_date=datetime.fromtimestamp(left_wall).astimezone()
+    right_date=datetime.fromtimestamp(right_wall).astimezone()
+    crossing_day=left_date.date()!=right_date.date()
+    crossing_offset=left_date.utcoffset()!=right_date.utcoffset()
+    ticks=[]
+    for index in range(8):
+        wall=start+index*interval
+        if wall>right_wall+.0001: break
+        date=datetime.fromtimestamp(wall).astimezone()
+        label=date.strftime('%I:%M %p').lstrip('0') if interval>=60 else date.strftime('%I:%M:%S %p').lstrip('0')
+        if interval<1:
+            label=date.strftime('%I:%M:%S').lstrip('0')+f'.{date.microsecond//1000:03d} '+date.strftime('%p')
+        if crossing_day: label=date.strftime('%b %d')+'\n'+label
+        if crossing_offset: label+=' '+date.strftime('%Z')
+        ticks.append(((wall-left_wall)/seconds,label))
+    return ticks
+
 
 
 def dashed(draw, coords, fill, dash=4, gap=5):
@@ -132,10 +195,11 @@ def shade_area(image, points, color, bottom, kind):
 
 def render_graph(key, width, height, history, devices, colors, selected, seconds, now,
                  pins=(), inspector_position=None, row_offset=0, active_pin=None, text_scale=1.0,
-                 focused=None, line_styles=None, clock_now=None, background=None):
+                 focused=None, line_styles=None, clock_now=None, background=None, opacities=None, time_mode='relative'):
     width, height = max(100, width), max(100, height)
     image = background.copy() if background is not None else Image.new("RGB", (width, height), PANEL)
     scene = Scene(image)
+    scene.preferred_uuid=focused
     draw = ImageDraw.Draw(image)
     small = font(round(12 * text_scale))
     left, right, top, bottom = 48, width - 15, 16, height - 30
@@ -156,16 +220,18 @@ def render_graph(key, width, height, history, devices, colors, selected, seconds
         y = bottom - (bottom - top) * step / 4
         draw.line((left, y, right, y), fill=GRID)
         draw.text((left-9, y), f"{ceiling*step/4:g}", fill=MUTED, font=small, anchor="rm")
-    for step in range(5):
-        x = left + (right-left) * step/4
+    for fraction,label in time_axis(history,seconds,now,clock_now,time_mode):
+        x = left + (right-left) * fraction
         dashed(draw, (x, top, x, bottom), GRID, 2, 5)
-        age = seconds*(1-step/4)+(0 if clock_now is None else clock_now-now)
-        label = "now" if abs(age)<.05 else f"−{age:.3g}s" if age < 60 else f"−{age/60:.3g}m"
         draw.text((x, bottom+16), label, fill=MUTED, font=small,
-                  anchor="rm" if step == 4 else "lm" if step == 0 else "mm")
+                  anchor='rm' if fraction>.94 else 'lm' if fraction<.06 else 'mm')
     locations = {}
     for uid in sorted(ids, key=lambda uid: uid == focused):
+        opacity=max(0,min(1,(opacities or {}).get(uid,1)))
+        if opacity==0: continue
+        before=image.copy() if opacity<1 else None
         segment, previous = [], None
+        previous_hit=None
         color = colors[uid]
         if focused and uid != focused:
             background = tuple(int(PANEL[i:i+2], 16) for i in (1, 3, 5))
@@ -175,6 +241,7 @@ def render_graph(key, width, height, history, devices, colors, selected, seconds
         kind = (line_styles or {}).get(uid, "Line")
 
         def flush():
+            nonlocal previous_hit
             if len(segment) > 1:
                 if kind in ("Filled", "Gradient", "Hatched"):
                     shade_area(image, segment, color, bottom, kind)
@@ -187,6 +254,7 @@ def render_graph(key, width, height, history, devices, colors, selected, seconds
                 x, y = segment[0]
                 draw.ellipse((x-2, y-2, x+2, y+2), fill=color)
             segment.clear()
+            previous_hit=None
 
         for snapshot in visible:
             reading = snapshot.gpu(uid)
@@ -197,10 +265,16 @@ def render_graph(key, width, height, history, devices, colors, selected, seconds
                 x = left + (snapshot.stamp-now+seconds)/seconds*(right-left)
                 y = bottom - value/ceiling*(bottom-top)
                 segment.append((x, y))
-                scene.points.append(HitPoint(x, y, snapshot, uid))
+                hit=HitPoint(x,y,snapshot,uid)
+                scene.points.append(hit)
+                if previous_hit is not None:
+                    scene.segments.append((previous_hit,hit))
+                previous_hit=hit
                 locations[(snapshot.stamp, uid)] = (x, y)
             previous = snapshot.stamp
         flush()
+        if before is not None:
+            image.paste(Image.blend(before,image,opacity))
     shown_pins = []
     for pin in pins:
         point = locations.get((pin.snapshot.stamp, pin.uuid))
@@ -222,6 +296,7 @@ def render_graph(key, width, height, history, devices, colors, selected, seconds
                   fill=MUTED, font=font(round(14*text_scale)), anchor="mm")
     if shown_pins:
         paint_inspector(scene, shown_pins, key, colors, inspector_position, row_offset, active_pin, text_scale, gpu_labels(devices))
+    scene.index_hits()
     return scene
 
 

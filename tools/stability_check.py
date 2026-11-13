@@ -6,6 +6,7 @@ application failures rather than screenshots or unrelated process information.
 import argparse
 from dataclasses import asdict
 import gc
+import faulthandler
 import json
 import math
 from pathlib import Path
@@ -25,11 +26,14 @@ def main():
     parser.add_argument('--live',action='store_true')
     parser.add_argument('--output',type=Path,required=True)
     args=parser.parse_args()
+    args.output.parent.mkdir(parents=True,exist_ok=True)
+    trace=args.output.with_suffix('.trace.log').open('w',encoding='utf-8')
+    faulthandler.dump_traceback_later(45,repeat=True,file=trace)
     errors=[]
     report={'success':False,'mode':'live NVIDIA' if args.live else 'synthetic','cycles':0,'callback_errors':errors}
     started=time.monotonic()
     with tempfile.TemporaryDirectory() as temporary:
-        app=Dashboard(collect=args.live,persist=True,preferences=True,data_dir=temporary)
+        app=Dashboard(collect=args.live,persist=True,preferences=True,data_dir=temporary,async_render=True)
         app.report_callback_exception=lambda kind,value,tb:errors.append(f'{kind.__name__}: {value}')
         try:
             app.store.ready.wait(5);app.poll_history()
@@ -70,22 +74,33 @@ def main():
                     raise RuntimeError('A callback failed')
                 if len(render_times)%30==0:
                     print(json.dumps({'elapsed_s':round(time.monotonic()-started),'cycles':cycle,'devices':len(app.devices),'samples':len(app.history)}),flush=True)
-                time.sleep(.2)
+                deadline=time.monotonic()+.2
+                while time.monotonic()<deadline:
+                    app.update()
+                    time.sleep(.005)
             app.save_preferences()
+            print('Waiting for latest requested frames',flush=True)
+            app.wait_for_renders()
             assert app.store.flush(10)
             report.update(success=not errors and (not args.live or bool(app.devices)),cycles=cycle,
                           elapsed_s=round(time.monotonic()-started,2),devices=len(app.devices),samples_in_memory=len(app.history),
-                          max_render_s=round(max(render_times),3),average_render_s=round(sum(render_times)/len(render_times),3),
+                          max_redraw_request_s=round(max(render_times),3),average_redraw_request_s=round(sum(render_times)/len(render_times),3),
+                          completed_frames=app.render_pipeline.completed if app.render_pipeline else 0,
+                          max_frame_draw_s=round(app.render_pipeline.max_seconds,3) if app.render_pipeline else 0,
+                          max_ui_delay_s=round(app.max_ui_delay,3),ui_stalls=app.ui_stalls,
                           history_error=app.store.error)
             assert len(app.history)<=4000
             assert not app.detached
         except Exception as error:
             report['error']=str(error)
         finally:
+            print('Closing test instance',flush=True)
             app.close();gc.collect()
     args.output.parent.mkdir(parents=True,exist_ok=True)
     args.output.write_text(json.dumps(report,indent=2),encoding='utf-8')
     print(json.dumps(report),flush=True)
+    faulthandler.cancel_dump_traceback_later()
+    trace.close()
     return 0 if report['success'] else 1
 
 

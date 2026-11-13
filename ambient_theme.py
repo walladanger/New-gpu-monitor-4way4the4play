@@ -1,4 +1,5 @@
 """Low-contrast horizontal light drift, painted without changing chart data."""
+from ui_resources import PhotoImage
 import ctypes
 from functools import lru_cache
 import math
@@ -6,7 +7,7 @@ import os
 import time
 import tkinter as tk
 
-from PIL import Image, ImageTk
+from PIL import Image
 
 BG, PANEL = "#10151d", "#181f2a"
 PERIOD = 120.0
@@ -76,7 +77,7 @@ class AmbientTheme:
         if item is None:
             item = canvas.create_image(0,0,anchor="nw",tags="ambient")
             canvas._ambient_item = item
-        canvas._ambient_photo = ImageTk.PhotoImage(image,master=canvas)
+        canvas._ambient_photo = PhotoImage(image,master=canvas)
         canvas.itemconfigure(item,image=canvas._ambient_photo)
         canvas.tag_lower(item)
         canvas.backdrop_image = image
@@ -122,3 +123,4 @@ class AmbientTheme:
             widget.draw()
         for child in list(widget.winfo_children()):
             self.paint_widget(child)
+

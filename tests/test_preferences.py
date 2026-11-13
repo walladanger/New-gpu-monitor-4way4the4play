@@ -60,6 +60,7 @@ class PreferenceDashboardTests(unittest.TestCase):
         from dashboard import Dashboard
         with tempfile.TemporaryDirectory() as temporary:
             first=Dashboard(collect=False,preferences=True,data_dir=temporary)
+            first.global_gpu_settings.set(False)
             first.update()
             first.accept(Snapshot(time.monotonic(),time.time(),(reading('GPU-A'),reading('GPU-B','1'))))
             first.gpu_choice.set('RTX 3090 #2')

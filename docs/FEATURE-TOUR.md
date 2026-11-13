@@ -1,6 +1,6 @@
 # A guided look at GPU Live Graphs
 
-These six screenshots are captures of the **actual 0.4.1 application** with synthetic readings. The documentation tool queries no NVIDIA devices. All illustrated controls are implemented; the waveforms are demonstration data, not performance results.
+These eight screenshots are captures of the **actual 0.6.0 application** with synthetic readings. The documentation tool queries no NVIDIA devices. All illustrated controls are implemented; the waveforms are demonstration data, not performance results.
 
 ## 1. Dashboard overview
 
@@ -14,7 +14,7 @@ These six screenshots are captures of the **actual 0.4.1 application** with synt
 
 ![GPU focus and frosted quick menu](images/02-line-options.png)
 
-**Look for:** the bright blue selected trace, dimmed alternatives, hex color input, hue slider, and five preview tiles. This menu affects the chosen GPU in this chart only. Export deliberately stays in the toolbar.
+**Look for:** the bright blue selected trace, dimmed alternatives, hex color input, hue slider, five preview tiles, and transparency slider. Global GPU settings is checked by default, applying appearance across all data windows. Uncheck it for local edits. Export deliberately stays in the toolbar.
 
 **Try it:** click a GPU name, enter `#70A9FF`, choose Gradient, then click the name again to restore equal emphasis.
 
@@ -49,6 +49,22 @@ These six screenshots are captures of the **actual 0.4.1 application** with synt
 **Look for:** the temperature and board-power panels, with the scrollbar thumb farther down. This is the same window and data as step 5.
 
 **Try it:** Shift+wheel over a graph or drag the page scrollbar to reach the lower panels.
+
+## 7. Clock time and expanded history
+
+![Exact local times and nine history choices](images/07-clock-history.png)
+
+**Look for:** the circled clock in each header and the 10:27 AM to 10:32 AM scale on GPU usage. Other graphs retain relative labels. The frosted History menu offers nine ranges from 30 seconds to one hour.
+
+**Try it:** press a graph's clock, zoom, and pan. The time mode follows that window without resetting the view.
+
+## 8. Session diagnostics
+
+![Dashboard debugging-log settings](images/08-session-settings.png)
+
+**Look for:** the full folder input, Browse, Save folder, Open log, and Log folder controls. The displayed D: path is a documentation example; the screenshot tool does not save that setting.
+
+**Try it:** open Settings and choose a writable location. Each session gets uniquely named startup, interaction, error and native-fault logs.
 
 ## Exports and source
 

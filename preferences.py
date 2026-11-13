@@ -10,7 +10,7 @@ import uuid
 
 from chart_view import LINE_STYLES, normalize_color
 
-HISTORY_NAMES={'1 minute','5 minutes','15 minutes','1 hour'}
+HISTORY_NAMES={'30 seconds','1 minute','2 minutes','5 minutes','10 minutes','15 minutes','30 minutes','45 minutes','1 hour'}
 METRIC_KEYS={'utilization','memory','temperature','power'}
 
 
@@ -35,7 +35,11 @@ def view(value):
     raw=value.get('styles',{})
     if isinstance(raw,dict):
         styles={uid:style for uid,style in list(raw.items())[:256] if identity(uid) and isinstance(style,str) and style in LINE_STYLES}
-    result.update(colors=colors,styles=styles,focus=identity(value.get('focus')))
+    raw=value.get('opacity',{})
+    opacity={uid:float(number) for uid,number in list(raw.items())[:256]
+             if identity(uid) and type(number) in (int,float) and math.isfinite(number) and 0<=number<=1} if isinstance(raw,dict) else {}
+    result.update(colors=colors,styles=styles,opacity=opacity,focus=identity(value.get('focus')),
+                  time_mode='clock' if value.get('time_mode')=='clock' else 'relative')
     for key,maximum,default in (('zoom',1800,1),('lag',3600,0)):
         number=value.get(key,default)
         result[key]=float(number) if isinstance(number,(int,float)) and not isinstance(number,bool) and math.isfinite(number) and 0<=number<=maximum else default
@@ -59,6 +63,7 @@ def validate(value):
         raw={}
     main=view(raw)
     main.update(bounds=bounds(raw.get('bounds')),maximized=raw.get('maximized') is True,topmost=raw.get('topmost') is True)
+    main['global_gpu_settings']=raw.get('global_gpu_settings') is not False
     charts=raw.get('charts',{})
     main['charts']={key:view(data) for key,data in charts.items() if key in METRIC_KEYS} if isinstance(charts,dict) else {}
     detached=[]
@@ -70,7 +75,7 @@ def validate(value):
             item=view(data)
             item.update(metric=data['metric'],bounds=bounds(data.get('bounds')),maximized=data.get('maximized') is True)
             detached.append(item)
-    return {'schema':1,'main':main,'detached':detached}
+    return {'schema':1,'main':main,'detached':detached,'gpu_settings':view(value.get('gpu_settings',{}))}
 
 
 class Preferences:

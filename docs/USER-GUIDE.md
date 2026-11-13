@@ -1,4 +1,4 @@
-# GPU Live Graphs 0.5.0
+# GPU Live Graphs 0.6.0
 
 Four live NVIDIA graphs: GPU usage, VRAM, temperature and board power. Written in Python, with Tkinter windows and Pillow graph rendering.
 
@@ -24,8 +24,9 @@ The original four measurements, colors, grids and live values remain. A wide win
 
 Names show the actual card models. Identical cards are distinguished as **RTX 3090 #1** and **RTX 3090 #2**, with stable NVIDIA UUIDs identifying them internally. The third card is **RTX 4070**.
 
-- Click a GPU name above a graph to brighten/thicken that card's line, dim the others in that graph, and open its frosted quick menu.
-- Click the same name again to restore all lines.
+- Click a GPU name above a graph to brighten/thicken that card's line, dim the others, and open its frosted quick menu.
+- **Global GPU settings** is checked by default: color, line style, transparency, and focus affect that GPU in all main and detached data windows. Uncheck it for edits confined to the clicked window. Rechecking restores the shared appearance.
+- Click the same name again to restore all lines; its options still open.
 - Click a name in the top legend to focus that GPU across all four main panels.
 - Use the GPU dropdown to show just one card instead of emphasizing it.
 
@@ -45,16 +46,17 @@ The inspector is semi-transparent with a Gaussian blur of the actual live graph 
 
 ## Separate graph windows
 
-Each main panel has a small **square-and-arrow icon** in its top-right corner. The icon is 25% smaller than the initial icon design, with its click area retained. The new window contains a live copy, leaving all four original panels in place. It shares the existing sampler and recorded history, while its GPU selection, history range, line focus, colors, line styles and pins are independent. Existing view settings and pins are initially copied. Closing it leaves the main dashboard running. Pause/resume applies to all windows.
+Each main panel has a small **square-and-arrow icon** in its top-right corner. The icon is 25% smaller than the initial icon design, with its click area retained. The new window contains a live copy, leaving all four original panels in place. It shares the existing sampler and recorded history, while its GPU selection, history range, clock mode, zoom and pins are independent. GPU appearance and focus follow the dashboard's global checkbox. Existing view settings and pins are initially copied. Closing it leaves the main dashboard running. Pause/resume applies to all windows.
 
 ## Quick menu and control styling
 
-The Show and History selectors are custom dark, rounded controls. Their choice lists and GPU quick menus use the same semi-transparent black tint and background blur as the pin inspector. Click elsewhere or press Escape to dismiss a menu.
+The Show and History selectors are custom dark, rounded controls. Their choice lists and GPU quick menus use the same dark translucent styling and background blur as the pin inspector. Choice lists and menus use a 50% black tint over the blurred application content. Click elsewhere or press Escape to dismiss a menu.
 
-A GPU name inside a panel opens a menu that applies only to that GPU in that panel:
+A GPU name inside a panel opens settings for that GPU. The menu says whether the scope is all data windows or this window only:
 
 - Type or paste a color into the hex field. It accepts #RRGGBB or #RGB, with the leading # optional. Valid complete codes preview immediately; Enter confirms the normalized code. Invalid or partial input leaves the last valid graph color intact.
 - Drag the color slider to change its hue; the hex field stays synchronized.
+- Drag **Transparency** from opaque (0%) to invisible (100%). This fades the line and shading, leaving the grid and axis labels intact. An invisible trace has no clickable line target; its name remains available to restore visibility.
 - Choose Line, Filled, Gradient, Dashed or Hatched using the visual preview tiles. Gradient fades the fill toward the baseline; Hatched uses diagonal shading. These are presentation styles; pinning still selects actual samples.
 
 Closing the menu leaves the chosen color/style and line emphasis in place. Clicking the same GPU name again restores equal line brightness.
@@ -63,7 +65,9 @@ Closing the menu leaves the chosen color/style and line emphasis in place. Click
 
 Roll the mouse wheel over a graph to zoom its time axis in or out around the pointer. The small corner plus/minus buttons provide the same control. Click the zoom multiplier, such as 2.0x, to reset to the full selected History range. Maximum zoom retains a two-second time span; it cannot create finer measurements than the recorded samples.
 
-A slim, arrowless horizontal timeline scrollbar appears only while that graph is zoomed in. Drag it to pan within the selected History range. Resetting zoom removes it. Historical axis labels show their age relative to the live timeline, rather than labelling past data as now.
+A slim, arrowless horizontal timeline scrollbar appears only while that graph is zoomed in. Drag it to pan within the selected History range. Resetting zoom removes it. Historical axis labels initially show their age relative to the live timeline. Press the small **circled clock** in a graph header to show actual local times such as **10:32 AM** instead. It toggles only that window, preserves zoom/pan, and is saved across restart. Short ranges include seconds or milliseconds; ranges crossing midnight include dates. Pin inspectors retain precise sample timestamps in either mode.
+
+History choices are **30 seconds; 1, 2, 5, 10, 15, 30, or 45 minutes; and 1 hour**. This controls the visible base range; it does not change the one-second sensor sampling interval.
 
 The main page's matching vertical scrollbar appears only when the four panels overflow the window, such as in a narrow stacked layout. Shift+wheel scrolls that page instead of zooming a graph. Wheel events inside the pin inspector scroll its details.
 
@@ -95,7 +99,11 @@ The 0.4.0 resize regression was reproduced through Windows' actual pointer targe
 
 The native window-procedure hook was removed. Fast drags also commit their final position on mouse release, and switching to a vertical layout clears the old grid-column sizing so each panel fills the available width. A redraw exception now logs the error and schedules another refresh rather than permanently stopping live updates. The previously reported abrupt exit did not reproduce in a 100-cycle resize/maximize/reopen stress test; local logging is included to capture further failures.
 
-Windowless launches now write Python errors to `logs/app.log` and native-fault information to `logs/native-crash-PID.log`. These files stay on your computer. If another exit occurs, retain those logs before replacing the app. The old running process must be closed and the updated Start.cmd launched to load this fix.
+Version 0.6.0 adds one timestamped session log and a native-fault sibling per launch, starting before Tk/Pillow imports. Use **Settings** to choose a full folder path such as `D:\DEBUGGING LOGS`, browse, open the current log, or open the chosen folder. The default uses that D: folder when the drive exists, otherwise `%LOCALAPPDATA%\GPU Live Graphs\logs`. Unavailable destinations fall back to local logs.
+
+Saving a different destination copies the current session immediately and again at normal shutdown; the next launch writes there from startup. A hard kill after changing folders may leave the newest events only in the original live file. Each session text log rotates at 10 MB with two backups; old sessions are retained. Logs include startup phases, GPU detection, graph/name clicks, pin outcomes, slow renders, UI delays and exceptions. They stay on your computer.
+
+The three reproduced click failures are repaired: refreshes keep GPU buttons mapped, Pillow drawing runs off the Tk input thread with bounded pending frames, and visible segments accept clicks between recorded vertices. Selected values always come from real samples. Further long workload and mixed-DPI qualification remains open.
 
 Run `python -m unittest discover -s tests -v` from this folder. Tests cover naming, recorded-sample selection, missing counters, pin lifetime, comparisons, blur compositing, focus buttons, responsive layout, separate windows, pause and image generation.
 
@@ -103,6 +111,6 @@ For console errors, run `python gpu_live_graphs.py`. For driver availability, ru
 
 ## Saved preferences and data
 
-Colors, styles, emphasis, filters, history range, zoom, always-on-top, window positions, and up to 12 open detached views are saved every five seconds and on normal exit. GPU selection uses UUIDs. Positions are clamped to available monitors. Pins are not restored across sessions.
+Global/local scope, colors, styles, transparency, clock/relative labels, emphasis, filters, history range, zoom, always-on-top, window positions, and up to 12 open detached views are saved every five seconds and on normal exit. GPU selection uses UUIDs. Positions are clamped to available monitors. Pins are not restored across sessions.
 
-Data is stored in `%LOCALAPPDATA%\GPU Live Graphs`: `history.sqlite3`, `preferences.json`, `logs`, `exports`, and `captures`. Uninstall retains user data. Invalid preferences are backed up before replacement; newer schemas are preserved rather than overwritten. Archive corruption or I/O errors leave monitoring usable in memory and are reported in the status/logs.
+Data is stored in `%LOCALAPPDATA%\GPU Live Graphs`: `history.sqlite3`, `preferences.json`, `diagnostic-settings.json`, `exports`, and `captures`. Session logs use the separately selected destination. Uninstall retains user data. Invalid preferences are backed up before replacement; newer schemas are preserved rather than overwritten. Archive corruption or I/O errors leave monitoring usable in memory and are reported in the status/logs.

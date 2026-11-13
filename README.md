@@ -6,7 +6,7 @@
 
 ![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-70A9FF?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-37DFD0?style=flat-square)
-![Version](https://img.shields.io/badge/App-0.5.0-FFBD69?style=flat-square)
+![Version](https://img.shields.io/badge/App-0.6.0-FFBD69?style=flat-square)
 ![Telemetry](https://img.shields.io/badge/Telemetry-NVIDIA%20nvidia--smi-9CE583?style=flat-square)
 [![Windows checks](https://github.com/walladanger/New-gpu-monitor-4way4the4play/actions/workflows/windows-checks.yml/badge.svg)](https://github.com/walladanger/New-gpu-monitor-4way4the4play/actions/workflows/windows-checks.yml)
 
@@ -26,8 +26,8 @@ Built in **Python**, with **Tkinter** desktop windows and **Pillow** graph rende
 
 | 🟩 See the system | 🟦 Inspect the moment | 🟧 Make it your own |
 | --- | --- | --- |
-| Four measurement panels | Pin several recorded samples | Per-panel GPU emphasis |
-| One trace per detected GPU | Cross-reference all four metrics | Editable hex colors and hue slider |
+| Four measurement panels | Pin several recorded samples | Global or per-panel GPU emphasis |
+| One trace per detected GPU | Cross-reference all four metrics | Hex colors, hue and transparency sliders |
 | Clear names for duplicate cards | Compare changes and elapsed time | Five line and shading styles |
 | Wide grid or vertical stack | Wheel zoom with timeline panning | Independent graph windows |
 | Stale and driver-error status | CSV, PDF, and graph PNG exports | Frameless window and subtle light drift |
@@ -36,7 +36,7 @@ Built in **Python**, with **Tkinter** desktop windows and **Pillow** graph rende
 
 ### Windows installer or portable app
 
-Download the **[0.5.0 preview](https://github.com/walladanger/New-gpu-monitor-4way4the4play/releases/tag/v0.5.0)**. Run `GPU-Live-Graphs-0.5.0-Setup.exe`, or extract the entire Windows-x64 ZIP and launch `GPU-Live-Graphs.exe`. **Python does not need to be installed.** The NVIDIA driver is still required. Builds are currently unsigned.
+Download the **[0.6.0 preview](https://github.com/walladanger/New-gpu-monitor-4way4the4play/releases/tag/v0.6.0)**. Run `GPU-Live-Graphs-0.6.0-Setup.exe`, or extract the entire Windows-x64 ZIP and launch `GPU-Live-Graphs.exe`. **Python does not need to be installed.** The NVIDIA driver is still required. Builds are currently unsigned.
 
 The installer creates a Start menu shortcut, offers a desktop shortcut, and supports Windows Installed Apps removal. It installs for the current user. [Installation and verification details](INSTALL.md).
 
@@ -66,7 +66,7 @@ For console diagnostics, run `python gpu_live_graphs.py`. Close older running bu
 | Temperature | GPU core temperature | °C |
 | Board power | GPU board power, not total PC wall power | W |
 
-Select one GPU or show all of them. Choose **1, 5, or 15 minutes, or 1 hour** of history. One shared sampler supplies the main dashboard and all detached windows.
+Select one GPU or show all of them. Choose **30 seconds; 1, 2, 5, 10, 15, 30, or 45 minutes; or 1 hour** of history. One shared sampler supplies the main dashboard and all detached windows.
 
 Names come from the driver. Identical cards receive labels such as **RTX 3090 #1** and **RTX 3090 #2**; UUIDs identify cards internally. The app is not hard-coded to three GPUs.
 
@@ -74,10 +74,11 @@ Names come from the driver. Identical cards receive labels such as **RTX 3090 #1
 
 ![Selected GPU name, editable color field, hue slider, and five visual line options](docs/images/02-line-options.png)
 
-Click a GPU name **inside a panel** to emphasize its trace and dim the others in that panel. Its frosted menu contains:
+Click a GPU name **inside a panel** to emphasize its trace and dim the others. **Global GPU settings is on by default**: focus and appearance follow the same GPU across all main and detached data windows. Uncheck it to edit only the clicked window. Its frosted menu contains:
 
 - **Color input:** type `#RRGGBB` or `#RGB`; valid complete colors preview immediately.
 - **Hue slider:** change the color visually.
+- **Transparency slider:** fade that GPU's line and shading from opaque to invisible, keeping grid labels readable.
 - **Five visual styles:** Line, Filled, Gradient, Dashed, and Hatched.
 
 Click the same name again to restore equal emphasis. The top legend can focus one GPU across all four main panels. Exports stay in the toolbar, keeping this menu focused on appearance.
@@ -100,6 +101,10 @@ Use the **mouse wheel over a graph** for zoom centered around the pointer. Corne
 
 The slim horizontal scrollbar appears **only while zoomed**. Drag it to inspect earlier data within the selected history range. **Shift + wheel** scrolls the dashboard page. Values above a graph continue to show the latest sample while you inspect older graph data.
 
+The small **circled clock button** switches that window between relative ages and aligned local times such as **10:32 AM**. Zoom and pan stay in place; short ranges show seconds or milliseconds, and midnight crossings include dates.
+
+![Clock-time axis and expanded frosted History choices](docs/images/07-clock-history.png)
+
 ### 05 · Four panels, even when space gets narrow
 
 <p align="center">
@@ -115,7 +120,7 @@ Drag edges or corners to resize. Use the custom maximize button or double-click 
 
 Click a panel's small **square-and-arrow icon**. A live copy opens separately while the original four panels stay in place.
 
-The new window initially copies the view and pins, then keeps independent GPU selection, history range, focus, colors, styles, zoom, and pins. All windows share the sampler and pause state. Closing a detached window leaves the dashboard running.
+The new window initially copies the view and pins, then keeps independent GPU selection, history range, clock/relative labels, zoom, and pins. Colors, styles, transparency, and focus follow the global checkbox; uncheck it for local edits. All windows share the sampler and pause state. Closing a detached window leaves the dashboard running.
 
 ### 07 · Take the evidence with you
 
@@ -131,9 +136,9 @@ CSV/PDF files go into `%LOCALAPPDATA%\GPU Live Graphs\exports`; graph images go 
 
 **History:** a background SQLite writer retains up to 24 hours, within a 128 MB database cap. Up to 4,000 recent samples are restored for the interactive 1-hour view. Older retained rows can be exported through **Export → Saved history CSV**, for the selected GPU. Restored readings are not labeled as current live values. Paused periods remain gaps.
 
-**Preferences:** colors, line styles, emphasis, GPU filter, history range, zoom, always-on-top, main-window geometry, and up to 12 detached views are saved periodically and on normal exit. GPU choices follow UUIDs. Window positions are adjusted to an available monitor when the old screen is missing. Pins are not restored across sessions.
+**Preferences:** the global checkbox, colors, line styles, transparency, clock/relative axis mode, emphasis, GPU filter, history range, zoom, always-on-top, main-window geometry, and up to 12 detached views are saved periodically and on normal exit. GPU choices follow UUIDs. Window positions are adjusted to an available monitor when the old screen is missing. Pins are not restored across sessions.
 
-Data lives in `%LOCALAPPDATA%\GPU Live Graphs`: `history.sqlite3`, `preferences.json`, `logs/`, `exports/`, and `captures/`. Uninstall keeps this data. Storage failures leave monitoring available in memory and appear in the status/logs.
+Data lives in `%LOCALAPPDATA%\GPU Live Graphs`: `history.sqlite3`, `preferences.json`, `diagnostic-settings.json`, `exports/`, and `captures/`. Session logs default to `D:\DEBUGGING LOGS` when D: exists, otherwise the data folder's `logs/`. Uninstall keeps this data. Storage failures leave monitoring available in memory and appear in the status/logs.
 
 ## Where the data comes from
 
@@ -157,8 +162,12 @@ The [prioritized roadmap](ROADMAP.md) has status, scope, and acceptance criteria
 
 - **No readings?** Run `nvidia-smi` and verify that the NVIDIA driver sees the cards.
 - **No window?** Run `python gpu_live_graphs.py` for startup errors.
-- **Unexpected exit?** Keep `app.log` and `native-crash-PID.log` from `%LOCALAPPDATA%\GPU Live Graphs\logs`. Review logs before sharing; they may include local paths and driver diagnostics.
+- **Unexpected exit or missed clicks?** Open **Settings** to choose the debugging-log folder, open this session's log, or open the selected folder. Each launch has its own timestamped `.log` and `-native.log`, starting before GUI imports. Changing folders copies this session now and at shutdown; next launch writes to the new folder from startup. Logs record clicks, selection outcomes, slow frames, UI delays, and exceptions. Review them before sharing; they may include local paths and GPU UUIDs.
+
+![Session-log folder and open-log controls](docs/images/08-session-settings.png)
 - **Old appearance after updating?** Close the older process and launch the new folder's `Start.cmd`.
+
+Version 0.6.0 keeps GPU buttons mapped during refresh, draws graphs on a bounded background worker, and accepts clicks along visible segments while retaining actual sample values. It also fixes a reproduced hang caused by cleanup of closed-window images on a worker thread. These checks do not establish that every intermittent input problem or abrupt exit is resolved.
 
 Version 0.4.1 repaired the frameless resize regression, removed the Python native-window callback, and added redraw recovery and local logs. The reported abrupt exit was not reproduced in the earlier 100-cycle stress run; it is not considered conclusively resolved.
 
@@ -170,6 +179,6 @@ python tools/capture_screenshots.py
 python tools/check_docs.py
 ```
 
-The screenshot tool opens **its own demo instance**, queries no GPU, and captures only that instance's windows. The six screenshots show the original 0.4.1 interface; the persistence and packaging additions above are in 0.5.0. Windows-specific checks require a Windows desktop session. The [Windows workflow](https://github.com/walladanger/New-gpu-monitor-4way4the4play/actions/workflows/windows-checks.yml) tests Python 3.11/3.14, builds the portable app/installer, verifies frozen rendering and exports, checks persistence across restart, then installs and uninstalls in an isolated directory. Versioned preview releases are created only after these checks pass.
+The screenshot tool opens **its own demo instance**, queries no GPU, and captures only that instance's windows. The eight screenshots show the 0.6.0 interface with clearly labeled synthetic data. Windows-specific checks require a Windows desktop session. The [Windows workflow](https://github.com/walladanger/New-gpu-monitor-4way4the4play/actions/workflows/windows-checks.yml) tests Python 3.11/3.14, builds the portable app/installer, verifies frozen rendering and exports, checks persistence across restart, then installs and uninstalls in an isolated directory. Versioned preview releases are created only after these checks pass.
 
 [User guide](docs/USER-GUIDE.md) · [Screenshot walkthrough](docs/FEATURE-TOUR.md) · [Design findings](docs/DESIGN-REVIEW.md) · [Contributing](CONTRIBUTING.md) · [License](LICENSE)

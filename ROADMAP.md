@@ -1,6 +1,6 @@
 # GPU Live Graphs · Roadmap
 
-Reviewed November 12, 2026 against standalone **0.5.0 preview**. This roadmap belongs to this repository, not the separate C# GPU-Monitoring app. Priorities describe recommended order, not delivery dates.
+Reviewed November 13, 2026 against standalone **0.6.0 preview**. This roadmap belongs to this repository, not the separate C# GPU-Monitoring app. Priorities describe recommended order, not delivery dates.
 
 ## Current requested order
 
@@ -19,11 +19,13 @@ Reviewed November 12, 2026 against standalone **0.5.0 preview**. This roadmap be
 - [x] Wide grid, full-width vertical stack, and conditional scrollbars.
 - [x] Frameless resize/maximize/restore and subtle animated background.
 - [x] Recorded-sample pins, four-metric inspector, and comparisons.
-- [x] Per-panel GPU focus, editable colors, and five visual line styles.
+- [x] Default-on global GPU focus/appearance, optional local scope, editable colors, five visual styles and transparency.
+- [x] Relative/clock axis toggle per graph and nine history choices.
+- [x] Bounded background graph drawing, stable GPU buttons, segment click selection, and per-session diagnostic logs.
 - [x] Wheel zoom, timeline panning, and independent detached views.
 - [x] Pause, CSV/PDF exports, and graph PNG capture.
 - [x] Stale/error states, sampling retries, redraw recovery, local crash logs.
-- [x] GitHub landing page, six real-UI demo captures, and feature walkthrough.
+- [x] GitHub landing page, eight real-UI demo captures, and feature walkthrough.
 - [x] Windows CI on Python 3.11 and 3.14, with source ZIP and SHA-256 artifact.
 - [x] Bundled Windows x64 portable app and per-user installer.
 - [x] Background SQLite history with restart recovery and retained-history CSV.
@@ -49,7 +51,7 @@ Reviewed November 12, 2026 against standalone **0.5.0 preview**. This roadmap be
 | Session layout | Detached windows restore without duplicate collectors | Implemented, up to 12 views; reset/opt-out controls remain future work |
 | Persistent history | Survives restart; bounded retention/storage; missing values and UTC timestamps retain meaning | Implemented with fixed 24h/128 MB limits; configurable limits and longer graph browsing remain future work |
 | Windows package | Runs without installing Python; installation/removal preserves user data | Implemented; broader clean-machine coverage and signing remain open |
-| Startup diagnostics | Clear errors for missing Python/Pillow/driver; easy access to diagnostics | Avoid silent startup failures |
+| Startup diagnostics | Session files before GUI imports, user-selected location, dashboard access | Implemented; hard native exits still need field logs |
 | Keyboard/accessibility | Useful names for icons, visible focus, keyboard access to menus/pins/exports/zoom | Verify Windows UI Automation and Tk behavior |
 | Export destination | User selects folder/name; cancel leaves no partial file | Keep toolbar export placement |
 
@@ -62,7 +64,8 @@ Tray monitoring, alerts, and process details in this section are deferred until 
 - [ ] Adjustable polling interval with an overhead budget.
 - [ ] GPU process list, showing unavailable data honestly under Windows WDDM limitations.
 - [ ] Optional NVML backend behind the existing reading model; validate before replacing `nvidia-smi`.
-- [ ] Absolute time labels, pan-to-live, and optional linked graph timelines.
+- [x] Absolute local-time axis labels.
+- [ ] Pan-to-live and optional linked graph timelines.
 - [ ] Pin list, clear-all action, comparison export, and keyboard selection.
 
 ## P3 · Runtime insights and broader hardware
@@ -74,8 +77,8 @@ Tray monitoring, alerts, and process details in this section are deferred until 
 
 ## Design guardrails
 
-Preserve the four data panels and measurement hierarchy. Stack narrow layouts vertically. Keep per-GPU controls local to the selected chart. Use text/shape/style alongside color. Keep overlays dark, translucent, and locally blurred. Pin recorded samples rather than interpolated values; keep missing values distinct from zero. Label synthetic demonstrations clearly.
+Preserve the four data panels and measurement hierarchy. Stack narrow layouts vertically. Keep GPU colors/styles/transparency consistent globally by default; let the user explicitly opt into local edits. Use text/shape/style alongside color. Keep overlays dark, translucent, and locally blurred. Pin recorded samples rather than interpolated values; keep missing values distinct from zero. Label synthetic demonstrations clearly.
 
 ## Decisions still needed
 
-Packaging uses PyInstaller plus Inno Setup. Initial archive limits are 24 hours and a 128 MB database cap. Signing, user-configurable archive limits, and later alert delivery choices remain open. Unchecked work is not included in version 0.5.0.
+Packaging uses PyInstaller plus Inno Setup. Initial archive limits are 24 hours and a 128 MB database cap. Signing, user-configurable archive limits, and later alert delivery choices remain open. Unchecked work is not included in version 0.6.0.

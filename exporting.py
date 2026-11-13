@@ -29,7 +29,7 @@ def export_csv(path, records, uuid, name):
                              r.capacity, r.temperature, r.power, r.power_limit))
 
 
-def export_pdf(path, records, uuid, key, devices, colors, line_styles, pins, left, right, clock_now):
+def export_pdf(path, records, uuid, key, devices, colors, line_styles, pins, left, right, clock_now,opacities=None,time_mode='relative'):
     if not records:
         raise ValueError("No recorded samples in the visible range.")
     name = gpu_labels(devices)[uuid]
@@ -48,7 +48,7 @@ def export_pdf(path, records, uuid, key, devices, colors, line_styles, pins, lef
     b = datetime.fromtimestamp(records[-1].wall_time).astimezone().isoformat(timespec="milliseconds")
     draw.text((55, 133), f"{a}  to  {b}", font=font(17), fill=MUTED)
     graph = render_graph(key, 1170, 510, records, devices, colors, uuid, right-left, right,
-                         pins, focused=uuid, line_styles=line_styles, clock_now=clock_now)
+                         pins, focused=uuid, line_styles=line_styles, clock_now=clock_now,opacities=opacities,time_mode=time_mode)
     first.paste(graph.image, (55, 175))
     draw.text((55, 715), f"{len(records)} actual driver samples · no interpolated measurements", font=font(20, True), fill=TEXT)
     y = 765
