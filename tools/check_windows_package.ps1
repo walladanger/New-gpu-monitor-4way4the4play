@@ -10,7 +10,10 @@ try {
     $exe = Join-Path $projectRoot 'dist/GPU-Live-Graphs/GPU-Live-Graphs.exe'
     $process = Start-Process -FilePath $exe -ArgumentList @('--self-test', ('"' + $report + '"')) -PassThru -WindowStyle Hidden
     if (-not $process.WaitForExit(120000)) { $process.Kill(); throw 'Frozen self-test timed out.' }
-    if ($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $report)) { throw 'Frozen self-test failed.' }
+    if ($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $report)) {
+        if (Test-Path -LiteralPath $report) { Get-Content -LiteralPath $report }
+        throw 'Frozen self-test failed.'
+    }
     $result = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
     if (-not $result.success) { throw $result.error }
     Get-Content -LiteralPath $report
@@ -23,7 +26,10 @@ try {
     $installedReport = Join-Path $testRoot 'installed-test.json'
     $process = Start-Process -FilePath $installedExe -ArgumentList @('--self-test', ('"' + $installedReport + '"')) -PassThru -WindowStyle Hidden
     if (-not $process.WaitForExit(120000)) { $process.Kill(); throw 'Installed self-test timed out.' }
-    if ($process.ExitCode -ne 0) { throw 'Installed application failed.' }
+    if ($process.ExitCode -ne 0) {
+        if (Test-Path -LiteralPath $installedReport) { Get-Content -LiteralPath $installedReport }
+        throw 'Installed application failed.'
+    }
     $uninstaller = Join-Path $installDir 'unins000.exe'
     $uninstall = Start-Process -FilePath $uninstaller -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -Wait -PassThru -WindowStyle Hidden
     if ($uninstall.ExitCode -ne 0) { throw 'Uninstaller failed.' }

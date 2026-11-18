@@ -26,6 +26,10 @@ from preferences import Preferences
 from version import VERSION
 from render_pipeline import RenderPipeline
 from replay import ReplayTrack
+from system_data import SystemCollector, SystemSnapshot
+from system_view import SystemPanel
+from system_graph import series_label
+from resource_overview import ResourceOverview, OccupancyHeatmapPanel
 from ui_resources import PhotoImage,BooleanVar,drain_resources
 from chart_view import normalize_color, LINE_STYLES
 
@@ -385,6 +389,7 @@ class DetachedWindow(tk.Toplevel):
         self.controller.detached.remove(self)
         if hasattr(self,"chrome"):
             self.chrome.detach()
+        self.ambient.close()
         self.destroy()
 
 
@@ -412,6 +417,9 @@ class Dashboard(tk.Tk):
         self.replay_job = None
         self._replay_slider_updating = False
         self.history = deque(maxlen=4000)
+        self.system_history = deque(maxlen=4000)
+        self.system_latest_at = None
+        self.system_error = None
         persist_enabled=collect if persist is None else persist
         preferences_enabled=collect if preferences is None else preferences
         self.data_dir=Path(data_dir) if data_dir is not None else (data_directory() if persist_enabled or preferences_enabled else None)
@@ -429,6 +437,12 @@ class Dashboard(tk.Tk):
         self.redraw_job, self.layout_job, self.tick_job = None, None, None
         self.columns = None
         self.collector = Collector() if collect else None
+        self.system_collector = None
+        if collect:
+            try:
+                self.system_collector = SystemCollector()
+            except (ImportError, OSError, RuntimeError) as exc:
+                self.system_error = f"System sensors unavailable: {exc}"
         self.protocol("WM_DELETE_WINDOW", self.close)
         header = tk.Frame(self, bg=BG)
         header.pack(fill="x", padx=24, pady=(20, 6))
@@ -446,10 +460,13 @@ class Dashboard(tk.Tk):
         self.live_tab_button = button(self.tab_strip, "●  Live", self.show_live)
         self.live_tab_button.pack(side="left", padx=(0, 5))
         self.replay_tab_button = button(self.tab_strip, "↺  Replay", self.show_replay)
-        self.replay_tab_button.pack(side="left")
+        self.replay_tab_button.pack(side="left", padx=(0, 5))
+        self.system_tab_button = button(self.tab_strip, "▦  System", self.show_system)
+        self.system_tab_button.pack(side="left")
         self.live_page = tk.Frame(self, bg=BG)
         self.live_page.pack(fill="both", expand=True)
         self.replay_page = tk.Frame(self, bg=BG)
+        self.system_page = tk.Frame(self, bg=BG)
         self.toolbar = tk.Frame(self.live_page, bg=BG)
         self.toolbar.pack(fill="x", padx=24, pady=(14, 8))
         filters = tk.Frame(self.toolbar, bg=BG)
@@ -502,12 +519,18 @@ class Dashboard(tk.Tk):
         self.grid_frame = tk.Frame(self.viewport, bg=BG)
         self.grid_item = self.viewport.create_window(0, 0, window=self.grid_frame, anchor="nw")
         self.charts = [Chart(self.grid_frame, self, *metric) for metric in METRICS]
+        self.setup_live_resource_rack()
         self.viewport.bind("<Configure>", self.schedule_layout)
         self.viewport.bind("<MouseWheel>", self.scroll_graphs)
         self.setup_replay_tab()
+        self.setup_system_tab()
         self.style_tab_buttons()
         self.ambient = AmbientTheme(self)
         self.deiconify()
+        # Establish the GPU + resource rack immediately, so the collapsed
+        # numeric gauges remain mapped before the first scheduled resize.
+        self.update_idletasks()
+        self.layout_graphs()
         if self.saved_preferences:
             self.restore_preferences()
         if self.preferences:
@@ -516,6 +539,52 @@ class Dashboard(tk.Tk):
             self.tick_job = self.after(100, self.tick)
         self.after(250,self.heartbeat)
         logging.getLogger('gpu_live_graphs').info('phase=dashboard_ready async_render=%s',self.async_render)
+
+    def setup_live_resource_rack(self):
+        """Resource widgets live below four GPU graphs, not inside their renderers."""
+        self.resource_overview=ResourceOverview(self.grid_frame,self)
+        self.resource_details=tk.Frame(self.grid_frame,bg=BG)
+        self.detail_expanded={"cpu":True,"ram":False,"disk":False}
+        self.live_system_panels={}
+        self.detail_buttons={}
+        for kind in ("cpu","ram","disk"):
+            card=tk.Frame(self.resource_details,bg=PANEL,highlightbackground=GRID,
+                          highlightthickness=1)
+            card.pack(fill="x",expand=True,padx=3,pady=4)
+            header=tk.Frame(card,bg=PANEL)
+            header.pack(fill="x",padx=12,pady=8)
+            action=button(header,"",lambda kind=kind:self.toggle_live_detail(kind))
+            action.configure(anchor="w",font=("Segoe UI",10,"bold"))
+            action.pack(fill="x",expand=True)
+            self.detail_buttons[kind]=action
+            panel=SystemPanel(card,self,kind)
+            self.live_system_panels[kind]=panel
+            if self.detail_expanded[kind]:
+                panel.pack(fill="both",expand=True,padx=7,pady=(0,8))
+            self._set_detail_button(kind)
+        self.resource_heatmap=OccupancyHeatmapPanel(self.grid_frame,self)
+
+    def _set_detail_button(self,kind):
+        labels={"cpu":"CPU · logical processors and clock",
+                "ram":"SYSTEM RAM · utilization and capacity",
+                "disk":"STORAGE · read/write and logical volumes"}
+        expanded=self.detail_expanded[kind]
+        self.detail_buttons[kind].configure(
+            text=("▾  " if expanded else "▸  ")+labels[kind]+
+            ("   ·  Hide graph" if expanded else "   ·  Expand graph"))
+
+    def toggle_live_detail(self,kind):
+        if kind not in self.live_system_panels:
+            return
+        self.detail_expanded[kind]=not self.detail_expanded[kind]
+        panel=self.live_system_panels[kind]
+        if self.detail_expanded[kind]:
+            panel.pack(fill="both",expand=True,padx=7,pady=(0,8))
+        else:
+            panel.pack_forget()
+        self._set_detail_button(kind)
+        self.schedule_layout()
+        self.schedule_redraw()
 
     def setup_replay_tab(self):
         """A separate, extensible view; source data and the live view stay isolated."""
@@ -587,8 +656,97 @@ class Dashboard(tk.Tk):
             lambda event: (self.replay_viewport.yview_scroll(
                 -3 if event.delta > 0 else 3, "units"), "break")[1])
 
+    def setup_system_tab(self):
+        """Add CPU/RAM/Storage without replacing the existing GPU dashboard."""
+        tk.Label(self.system_page,
+                 text="SYSTEM RESOURCES  ·  Logical CPU utilization, memory and drive metrics",
+                 bg=BG,fg=MUTED,font=("Segoe UI",10),anchor="w").pack(
+                     fill="x",padx=24,pady=(13,8))
+        tk.Label(self.system_page,
+                 text="Use Sensors for multiple readings and Style / color for the same five graph styles. CPU clocks are system-reported, not per-thread measurements.",
+                 bg=BG,fg=MUTED,font=("Segoe UI",9),anchor="w",wraplength=980,justify="left").pack(
+                     fill="x",padx=24,pady=(0,8))
+        body=tk.Frame(self.system_page,bg=BG)
+        body.pack(fill="both",expand=True,padx=(18,8))
+        self.system_viewport=tk.Canvas(body,bg=BG,highlightthickness=0)
+        self.system_scrollbar=SlimScrollbar(body,"vertical",self.system_viewport.yview)
+        self.system_viewport.pack(side="left",fill="both",expand=True)
+        self.system_viewport.configure(
+            yscrollcommand=self.system_scrollbar.set,yscrollincrement=24)
+        self.system_grid=tk.Frame(self.system_viewport,bg=BG)
+        self.system_grid_item=self.system_viewport.create_window(
+            0,0,window=self.system_grid,anchor="nw")
+        self.system_panels={kind:SystemPanel(self.system_grid,self,kind)
+                            for kind in ("cpu","ram","disk")}
+        self.system_columns=None
+        self.system_viewport.bind("<Configure>",lambda _:self.layout_system_graphs())
+        self.system_viewport.bind(
+            "<MouseWheel>",lambda event:(
+                self.system_viewport.yview_scroll(-3 if event.delta>0 else 3,"units"),
+                "break")[1])
+
+    def show_system(self):
+        if self.active_tab=="system":
+            return
+        self.replay_pause()
+        self.live_page.pack_forget()
+        self.replay_page.pack_forget()
+        self.system_page.pack(fill="both",expand=True)
+        self.active_tab="system"
+        self.style_tab_buttons()
+        self.layout_system_graphs()
+        self.refresh_status()
+        self.schedule_redraw()
+
+    def layout_system_graphs(self):
+        width,height=self.system_viewport.winfo_width(),self.system_viewport.winfo_height()
+        if width<100 or height<100:
+            return
+        columns=panel_columns(width)
+        if columns!=self.system_columns:
+            for panel in self.system_panels.values():
+                panel.grid_forget()
+            for row in range(3):
+                self.system_grid.rowconfigure(row,weight=0,minsize=0,uniform="")
+            for col in range(2):
+                self.system_grid.columnconfigure(col,weight=0,minsize=0,uniform="")
+            if columns==2:
+                self.system_grid.columnconfigure(0,weight=1,uniform="resources")
+                self.system_grid.columnconfigure(1,weight=1,uniform="resources")
+                self.system_grid.rowconfigure(0,weight=1)
+                self.system_grid.rowconfigure(1,weight=1)
+                self.system_panels["cpu"].grid(row=0,column=0,columnspan=2,
+                    sticky="nsew",padx=6,pady=6)
+                self.system_panels["ram"].grid(row=1,column=0,sticky="nsew",padx=6,pady=6)
+                self.system_panels["disk"].grid(row=1,column=1,sticky="nsew",padx=6,pady=6)
+            else:
+                self.system_grid.columnconfigure(0,weight=1)
+                for row,kind in enumerate(("cpu","ram","disk")):
+                    self.system_grid.rowconfigure(row,weight=1)
+                    self.system_panels[kind].grid(row=row,column=0,
+                        sticky="nsew",padx=6,pady=6)
+            self.system_columns=columns
+        content_height=max(height,810 if columns==2 else 1140)
+        self.system_viewport.itemconfigure(
+            self.system_grid_item,width=width,height=content_height)
+        self.system_viewport.configure(scrollregion=(0,0,width,content_height))
+        if content_height>height:
+            self.system_scrollbar.pack(side="right",fill="y")
+        else:
+            self.system_scrollbar.pack_forget()
+        for panel in self.system_panels.values():
+            panel.legends.configure(wraplength=max(220,width//columns-64))
+        self.schedule_redraw()
+
+    def accept_system(self,snapshot):
+        self.system_history.append(snapshot)
+        self.system_latest_at=snapshot.stamp
+        if self.active_tab=="system":
+            self.schedule_redraw()
+
     def style_tab_buttons(self):
-        for name, control in (("live", self.live_tab_button), ("replay", self.replay_tab_button)):
+        for name, control in (("live", self.live_tab_button), ("replay", self.replay_tab_button),
+                              ("system", self.system_tab_button)):
             selected = self.active_tab == name
             control.configure(
                 bg="#253647" if selected else BG, fg=TEXT if selected else MUTED,
@@ -600,6 +758,7 @@ class Dashboard(tk.Tk):
             return
         self.replay_pause()
         self.replay_page.pack_forget()
+        self.system_page.pack_forget()
         self.live_page.pack(fill="both", expand=True)
         self.active_tab = "live"
         self.style_tab_buttons()
@@ -611,6 +770,7 @@ class Dashboard(tk.Tk):
         if self.active_tab == "replay":
             return
         self.live_page.pack_forget()
+        self.system_page.pack_forget()
         self.replay_page.pack(fill="both", expand=True)
         self.active_tab = "replay"
         self.style_tab_buttons()
@@ -843,10 +1003,10 @@ class Dashboard(tk.Tk):
         chart.refresh()
         self.schedule_redraw()
 
-    def queue_frame(self,owner,key,presentation,args,kwargs,apply):
+    def queue_frame(self,owner,key,presentation,args,kwargs,apply,draw=None):
         if self.render_pipeline is None:
             self.render_pipeline=RenderPipeline()
-        self.render_pipeline.request(owner,key,presentation,render_graph,args,kwargs,apply)
+        self.render_pipeline.request(owner,key,presentation,draw or render_graph,args,kwargs,apply)
         if self.render_poll_job is None:
             self.render_poll_job=self.after(16,self.poll_renders)
 
@@ -930,6 +1090,24 @@ class Dashboard(tk.Tk):
                 self.global_styles.update(self.charts[0].line_styles)
                 self.global_opacity.update(self.charts[0].series_opacity)
             self.sync_global_settings()
+        resources=self.saved_preferences.get('resources',{})
+        if resources:
+            for gauge,spec in zip(self.resource_overview.gauges,resources['gauges']):
+                gauge.spec.metric=spec['metric']
+                gauge.spec.style=spec['style']
+                gauge.spec.color=spec['color']
+            self.resource_overview.set_collapsed(resources['collapsed'])
+            for key,panels in (('panels',self.system_panels),('live_panels',self.live_system_panels)):
+                for group,state in resources.get(key,{}).items():
+                    panels[group].restore_preferences(state)
+            for group,expanded in resources.get('details',{}).items():
+                if expanded!=self.detail_expanded[group]:
+                    self.toggle_live_detail(group)
+            heatmap=resources['heatmap']
+            self.resource_heatmap.metric=heatmap['metric']
+            self.resource_heatmap.sensor_button.configure(text=series_label(heatmap['metric'])+'  ▾')
+            self.resource_heatmap.set_window(heatmap['window'])
+            self.resource_heatmap.set_expanded(heatmap['expanded'])
 
     def chart_preferences(self,chart):
         colors={uid:chart.series_color(uid) for uid in self.devices}
@@ -943,6 +1121,11 @@ class Dashboard(tk.Tk):
                'global_gpu_settings':self.global_gpu_settings.get(),'topmost':self.topmost.get(),'gpu':getattr(self,'pending_gpu',None) or self.selected_uuid(self.gpu_choice),
                'history':self.window_choice.get(),'charts':{c.key:self.chart_preferences(c) for c in self.charts}},'detached':[]}
         state['gpu_settings']={'colors':self.global_colors,'styles':self.global_styles,'opacity':self.global_opacity}
+        state['resources']=dict(gauges=[dict(metric=g.spec.metric,style=g.spec.style,color=g.spec.color) for g in self.resource_overview.gauges],
+            collapsed=self.resource_overview.collapsed,details=dict(self.detail_expanded),
+            panels={k:p.preference_state() for k,p in self.system_panels.items()},
+            live_panels={k:p.preference_state() for k,p in self.live_system_panels.items()},
+            heatmap=dict(metric=self.resource_heatmap.metric,window=self.resource_heatmap.range_name,expanded=self.resource_heatmap.expanded))
         for window in self.detached:
             item=self.chart_preferences(window.chart)
             item.update(metric=window.chart.key,bounds=list(window.chrome.preference_bounds()),maximized=window.chrome.is_maximized(),
@@ -988,10 +1171,12 @@ class Dashboard(tk.Tk):
     def layout_graphs(self):
         self.layout_job = None
         width, height = self.viewport.winfo_width(), self.viewport.winfo_height()
+        if width < 100 or height < 100:
+            return
         columns = panel_columns(width)
         rows = 4//columns
         if columns != self.columns:
-            for i in range(4):
+            for i in range(8):
                 self.grid_frame.rowconfigure(i, weight=0, minsize=0, uniform="")
             for i in range(2):
                 self.grid_frame.columnconfigure(i, weight=0, minsize=0, uniform="")
@@ -1000,18 +1185,30 @@ class Dashboard(tk.Tk):
             for i in range(rows):
                 self.grid_frame.rowconfigure(i, weight=1, uniform="panels")
             for i, chart in enumerate(self.charts):
-                chart.grid(row=i//columns, column=i%columns, sticky="nsew", padx=6, pady=6)
+                chart.grid(row=i//columns, column=i%columns, sticky="nsew",
+                           padx=6, pady=6)
+            # Live remains a scrollable rack: GPU graphs, then four circular
+            # gauges, expandable detail graphs and the advanced occupancy view.
+            for panel, offset in ((self.resource_overview,0),
+                                  (self.resource_details,1),
+                                  (self.resource_heatmap,2)):
+                panel.grid(row=rows+offset,column=0,columnspan=columns,
+                           sticky="nsew",padx=6,pady=(5,8))
             self.columns = columns
-        content_height = max(height, rows*(300 if columns == 2 else 340))
-        self.viewport.itemconfigure(self.grid_item, width=width, height=content_height)
-        self.viewport.configure(scrollregion=(0, 0, width, content_height))
+        self.resource_overview.arrange(width-20)
+        extra=sum(max(32,widget.winfo_reqheight())+14 for widget in
+                  (self.resource_overview,self.resource_details,self.resource_heatmap))
+        min_graph_height=rows*(300 if columns == 2 else 340)
+        content_height = max(height,min_graph_height+extra)
+        self.viewport.itemconfigure(self.grid_item,width=width,height=content_height)
+        self.viewport.configure(scrollregion=(0,0,width,content_height))
         if content_height > height:
-            self.page_scrollbar.pack(side="right", fill="y")
+            self.page_scrollbar.pack(side="right",fill="y")
         else:
             self.page_scrollbar.pack_forget()
-        self.status.configure(wraplength=max(350, self.winfo_width()-48))
-        self.subtitle.configure(wraplength=max(350, self.winfo_width()-48))
-        self.instructions.configure(wraplength=max(350, self.winfo_width()-48))
+        self.status.configure(wraplength=max(350,self.winfo_width()-48))
+        self.subtitle.configure(wraplength=max(350,self.winfo_width()-48))
+        self.instructions.configure(wraplength=max(350,self.winfo_width()-48))
         self.schedule_redraw()
 
     def scroll_graphs(self, event):
@@ -1039,24 +1236,37 @@ class Dashboard(tk.Tk):
         self.redraw_job = None
         if time.monotonic()-self._last_ambient > 1:
             for root in [self]+self.detached:
-                root.ambient.paint()
+                root.ambient.schedule_paint()
             self._last_ambient=time.monotonic()
         if self.active_tab == "replay":
             if self.winfo_viewable():
                 context = self.replay_context()
                 for chart in self.replay_charts:
                     chart.render(*context)
+        elif self.active_tab == "system":
+            if self.winfo_viewable():
+                history=tuple(self.system_history)
+                now=self.frozen_at if self.paused else time.monotonic()
+                for panel in self.system_panels.values():
+                    panel.render(history,300,now)
         elif self.winfo_viewable():
             context = self.context(self.gpu_choice, self.window_choice)
             for chart in self.charts:
                 chart.render(*context)
+            system_history=tuple(self.system_history)
+            now=context[5]
+            self.resource_overview.render(system_history,now)
+            for kind,panel in self.live_system_panels.items():
+                if self.detail_expanded[kind] and panel.winfo_viewable():
+                    panel.render(system_history,300,now)
+            self.resource_heatmap.render(system_history,now)
         for window in self.detached:
             window.gpu_choice.configure(values=self.gpu_choice.cget("values"))
             if window.winfo_viewable():
                 window.chart.render(*self.context(window.gpu_choice, window.window_choice))
         for root in [self]+self.detached:
             if getattr(root, "glass_popup", None):
-                root.glass_popup.render()
+                root.glass_popup.render(refresh_background=True)
 
     def open_window(self, chart):
         window = DetachedWindow(self, chart)
@@ -1172,10 +1382,19 @@ class Dashboard(tk.Tk):
 
     def refresh_status(self):
         stale = self.latest_at is not None and time.monotonic()-self.latest_at >= 3
-        state = ("REPLAY" if self.replay_track and self.replay_track.records else "REPLAY · NO DATA") if self.active_tab == "replay" else (
-            "PAUSED" if self.paused else "NO DATA" if self.error else "RECONNECTING" if stale else "LIVE" if self.latest_at else "CONNECTING")
-        self.live.configure(text=state, fg=COLORS[2] if self.active_tab == "replay" or self.paused or self.error or stale else COLORS[0])
-        if self.active_tab == "replay":
+        system_stale = self.system_latest_at is not None and time.monotonic()-self.system_latest_at > 4
+        if self.active_tab == "system":
+            state = 'SYSTEM · PAUSED' if self.paused else ("SYSTEM · NO DATA" if self.system_latest_at is None else ("SYSTEM · STALE" if system_stale else "SYSTEM · LIVE"))
+        else:
+            state = ("REPLAY" if self.replay_track and self.replay_track.records else "REPLAY · NO DATA") if self.active_tab == "replay" else (
+                "PAUSED" if self.paused else "NO DATA" if self.error else "RECONNECTING" if stale else "LIVE" if self.latest_at else "CONNECTING")
+        self.live.configure(text=state, fg=COLORS[2] if self.active_tab in ("replay","system") or self.paused or self.error or stale else COLORS[0])
+        if self.active_tab == "system":
+            status = 'System graphs are paused. Resume from Live to continue.' if self.paused else ("System readings unavailable · " + (self.system_error or "Waiting for system sensors.")
+                      if self.system_latest_at is None else
+                      ("System readings are stale; waiting for refreshed samples." if system_stale else
+                      "Live CPU, RAM and disk readings · physical disk I/O and volume capacity are distinct."))
+        elif self.active_tab == "replay":
             status = self.replay_status.cget("text")
         elif self.notice and time.monotonic() < self.notice[0]:
             status = self.notice[1]
@@ -1198,6 +1417,15 @@ class Dashboard(tk.Tk):
         self.tick_job = None
         try:
             self.poll_history()
+            if self.system_collector:
+                while True:
+                    try:
+                        system_snapshot, system_error = self.system_collector.messages.get_nowait()
+                    except queue.Empty:
+                        break
+                    self.system_error = system_error
+                    if system_snapshot is not None and not self.paused:
+                        self.accept_system(system_snapshot)
             while True:
                 try:
                     snapshot, error = self.collector.messages.get_nowait()
@@ -1250,6 +1478,7 @@ class Dashboard(tk.Tk):
             self.after_cancel(self.replay_job)
             self.replay_job = None
         self._closed = True
+        self.ambient.close()
         logging.getLogger('gpu_live_graphs').info('Dashboard closing ui_stalls=%s max_ui_delay=%.3fs',self.ui_stalls,self.max_ui_delay)
         if self.render_pipeline:
             self.render_pipeline.close()
@@ -1257,10 +1486,17 @@ class Dashboard(tk.Tk):
             self.glass_popup.close()
         if self.collector:
             self.collector.stop.set()
+        if self.system_collector:
+            self.system_collector.stop.set()
+        for panel in getattr(self,"system_panels",{}).values():
+            panel.close()
+        for panel in getattr(self,"live_system_panels",{}).values():
+            panel.close()
         if self.store:
             self.store.close()
         for window in self.detached:
             window._closed = True
+            window.ambient.close()
             if hasattr(window,"chrome"):
                 window.chrome.detach()
         if hasattr(self,"chrome"):

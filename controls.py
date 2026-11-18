@@ -23,7 +23,9 @@ def backdrop(root, x, y, width, height):
         box = (max(left, clip[0]), max(top, clip[1]), min(right, clip[2]), min(bottom, clip[3]))
         if box[2] <= box[0] or box[3] <= box[1]:
             return
-        layer = Image.new("RGB", (max(1, right-left), max(1, bottom-top)), PANEL)
+        # Render just the intersecting pixels. The scrollable rack can be many
+        # screens tall; allocating every full widget made popup input stall.
+        layer = Image.new("RGB", (box[2]-box[0],box[3]-box[1]), PANEL)
         draw = ImageDraw.Draw(layer)
         try:
             layer.paste(widget.cget("background"), (0, 0, layer.width, layer.height))
@@ -31,18 +33,18 @@ def backdrop(root, x, y, width, height):
             pass
         raster = getattr(widget, "backdrop_image", None)
         if raster is not None:
-            layer.paste(raster, (0, 0))
+            layer.paste(raster.crop((box[0]-left,box[1]-top,box[2]-left,box[3]-top)),(0,0))
         elif isinstance(widget, (tk.Label, tk.Button, tk.Checkbutton)):
             try:
                 text = widget.cget("text")
                 face = tkfont.Font(root=root, font=widget.cget("font"))
                 size = max(9, face.metrics("linespace")-3)
                 anchor = "lm" if widget.cget("anchor") in ("w", "nw", "sw") else "mm"
-                pos = (4, layer.height/2) if anchor == "lm" else (layer.width/2, layer.height/2)
+                pos = (left-box[0]+4,top-box[1]+(bottom-top)/2) if anchor == "lm" else (left-box[0]+(right-left)/2,top-box[1]+(bottom-top)/2)
                 draw.text(pos, text, fill=widget.cget("foreground"), font=font(size, face.actual("weight")=="bold"), anchor=anchor)
             except (tk.TclError, ValueError):
                 pass
-        output.paste(layer.crop((box[0]-left, box[1]-top, box[2]-left, box[3]-top)), box[:2])
+        output.paste(layer,box[:2])
         for child in widget.winfo_children():
             if not isinstance(child, tk.Toplevel):
                 visit(child, box)
@@ -62,6 +64,7 @@ class GlassOverlay(tk.Canvas):
         self._ambient_exempt = True
         self.root, self.source, self.on_close = root, source, on_close
         self.closed = False
+        self._underlay=None
         self.width = min(width, max(200, root.winfo_width()-16))
         self.height = min(height, max(160, root.winfo_height()-16))
         self.x = min(max(8, source.winfo_rootx()-root.winfo_rootx()), root.winfo_width()-self.width-8)
@@ -84,15 +87,18 @@ class GlassOverlay(tk.Canvas):
             widget = getattr(widget, "master", None)
         self.close()
 
-    def render(self):
+    def render(self,refresh_background=False):
         if self.closed:
             return
-        original = backdrop(self.root, self.x, self.y, self.width, self.height)
-        blurred = original.filter(ImageFilter.GaussianBlur(12)).convert("RGBA")
-        glass = Image.alpha_composite(blurred, Image.new("RGBA", blurred.size, (8, 12, 19, 128))).convert("RGB")
-        mask = Image.new("L", glass.size, 0)
-        ImageDraw.Draw(mask).rounded_rectangle((0, 0, self.width-1, self.height-1), radius=12, fill=255)
-        original.paste(glass, (0, 0), mask)
+        if self._underlay is None or refresh_background:
+            original = backdrop(self.root, self.x, self.y, self.width, self.height)
+            blurred = original.filter(ImageFilter.GaussianBlur(12)).convert("RGBA")
+            glass = Image.alpha_composite(blurred, Image.new("RGBA", blurred.size, (8, 12, 19, 128))).convert("RGB")
+            mask = Image.new("L", glass.size, 0)
+            ImageDraw.Draw(mask).rounded_rectangle((0, 0, self.width-1, self.height-1), radius=12, fill=255)
+            original.paste(glass, (0, 0), mask)
+            self._underlay=original
+        original=self._underlay.copy()
         draw = ImageDraw.Draw(original)
         draw.rounded_rectangle((0, 0, self.width-1, self.height-1), radius=12, outline="#49566a")
         self.surface = original

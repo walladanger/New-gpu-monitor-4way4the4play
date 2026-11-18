@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.0 preview — November 18, 2026
+
+- Add four configurable circular resource gauges under the GPU rack, numerical collapse mode, expandable details and an independent System tab.
+- Add logical CPU utilization, reported system GHz, system RAM and physical-disk/volume counters through a bounded psutil worker.
+- Add a collapsible recorded-duration occupancy heatmap, with visible clock-frequency bands and honest gaps.
+- Match resource menus to the existing 50% tinted/blurred controls, including scrolling and hex/hue color editing.
+- Persist resource appearance, selections and layout; preserve choices through transient missing sensors.
+- Move gauges/heatmaps off the input thread, avoid stale-frame starvation, schedule decorative painting incrementally and bound popup allocations.
+- Preserve real capacity denominators, per-counter elapsed time, immutable system snapshots and shared live pause.
+- Extend frozen tests to real bundled psutil and resource UI; add three synthetic actual-UI screenshots.
+- Keep system history in memory; GPU SQLite history, Replay and exports retain their existing scope.
+
+
 ## 0.6.0 preview — November 13, 2026
 
 - Keep GPU buttons mapped during refresh so presses survive a redraw.

@@ -58,6 +58,7 @@ def run(report_path):
         app.charts[0].toggle_time_mode()
         app.wait_for_renders()
         app.window_choice.set('1 hour')
+        app.resource_overview.gauges[0].set_style('Arc')
         app.close()
         app=Dashboard(collect=False,persist=True,preferences=True,data_dir=session.name,async_render=True)
         assert app.store.ready.wait(5)
@@ -68,6 +69,7 @@ def run(report_path):
         assert all(c.series_opacity['GPU-SELF-TEST']==.6 for c in app.charts)
         assert app.charts[0].time_mode=='clock'
         assert app.window_choice.get()=='1 hour'
+        assert app.resource_overview.gauges[0].spec.style=='Arc'
         result['checks'].append('SQLite history and preferences survive restart')
         app.show_replay()
         deadline=time.monotonic()+8
@@ -84,6 +86,32 @@ def run(report_path):
         app.update()
         assert app.active_tab=='live'
         result['checks'].append('Replay tab loads last archived session, reaches final exact sample and returns to Live')
+        # Import and exercise the real psutil extension in the frozen package.
+        import psutil
+        from system_data import SystemSampler,SystemSnapshot
+        real_system=SystemSampler(psutil).sample()
+        assert real_system.values['ram:total']>0
+        assert any(key.startswith('cpu:thread:') for key in real_system.values)
+        now=time.monotonic()
+        for index in range(30):
+            app.accept_system(SystemSnapshot(now-29+index,time.time()-29+index,
+                {'cpu:total':float(index),'cpu:clock':4.2,'cpu:thread:0':float(index),
+                 'ram:used_pct':50,'ram:used':32,'ram:total':64,'ram:available':32,
+                 'disk:total:read':12,'disk:total:write':3}))
+        app.show_system();app.update();app.redraw();app.wait_for_renders()
+        assert all(panel.photo is not None for panel in app.system_panels.values())
+        app.show_live();app.update()
+        app.resource_heatmap.set_expanded(True)
+        app.update();app.layout_graphs();app.update();app.redraw();app.wait_for_renders()
+        assert all(gauge.photo is not None for gauge in app.resource_overview.gauges)
+        assert app.resource_heatmap.photo is not None
+        app.resource_overview.set_collapsed(True)
+        app.update()
+        assert not app.resource_overview.gauges[0].canvas.winfo_ismapped()
+        app.resource_heatmap.set_expanded(False)
+        assert len(app.charts)==4 and len(app.replay_charts)==4
+        assert not errors,errors
+        result['checks'].append('bundled psutil, system graphs, four compact gauges, heatmap and saved appearance')
         result['success']=True
     except Exception:
         result['error']=traceback.format_exc()

@@ -6,7 +6,7 @@
 
 ![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-70A9FF?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-37DFD0?style=flat-square)
-![Version](https://img.shields.io/badge/App-0.7.0-FFBD69?style=flat-square)
+![Version](https://img.shields.io/badge/App-0.8.0-FFBD69?style=flat-square)
 ![Telemetry](https://img.shields.io/badge/Telemetry-NVIDIA%20nvidia--smi-9CE583?style=flat-square)
 [![Windows checks](https://github.com/walladanger/New-gpu-monitor-4way4the4play/actions/workflows/windows-checks.yml/badge.svg)](https://github.com/walladanger/New-gpu-monitor-4way4the4play/actions/workflows/windows-checks.yml)
 
@@ -22,11 +22,11 @@ Built in **Python**, with **Tkinter** desktop windows and **Pillow** graph rende
 
 > **Screenshot data:** These are captures of the real application populated with synthetic readings for a reproducible feature tour. They are not benchmarks or live measurements from a particular PC. Normal operation reads your NVIDIA driver through `nvidia-smi`.
 
-## Replay tab · new in 0.7.0 preview
+## Replay tab · introduced in 0.7.0
 
 The dedicated **Replay** tab was added in [PR #2](https://github.com/walladanger/New-gpu-monitor-4way4the4play/pull/2). It loads the last retained completed SQLite session (or explicitly snapshots the current session) and replays actual NVIDIA samples at their original intervals, with scrubbing, 0.25×–4× speed, and an exact stop at the last recorded sample. The Live dashboard keeps collecting independently. See [Replay data-fidelity notes](docs/REPLAY.md).
 
-**Included in the 0.7.0 preview**. The earlier 0.6.0 installer remains Live-only.
+**Included in the 0.8.0 preview**. The earlier 0.6.0 installer remains Live-only.
 
 ## At a glance
 
@@ -42,13 +42,13 @@ The dedicated **Replay** tab was added in [PR #2](https://github.com/walladanger
 
 ### Windows installer or portable app
 
-Download the **[0.7.0 preview](https://github.com/walladanger/New-gpu-monitor-4way4the4play/releases/tag/v0.7.0)**. Run `GPU-Live-Graphs-0.7.0-Setup.exe`, or extract the entire Windows-x64 ZIP and launch `GPU-Live-Graphs.exe`. **Python does not need to be installed.** The NVIDIA driver is still required. Builds are currently unsigned.
+Download the **[0.8.0 preview](https://github.com/walladanger/New-gpu-monitor-4way4the4play/releases/tag/v0.8.0)**. Run `GPU-Live-Graphs-0.8.0-Setup.exe`, or extract the entire Windows-x64 ZIP and launch `GPU-Live-Graphs.exe`. **Python does not need to be installed.** The NVIDIA driver is still required. Builds are currently unsigned.
 
 The installer creates a Start menu shortcut, offers a desktop shortcut, and supports Windows Installed Apps removal. It installs for the current user. [Installation and verification details](INSTALL.md).
 
 ### Run from source
 
-**Requirements:** Windows 10/11, Python 3.11+ with Tkinter, Pillow 12.x, and an NVIDIA driver providing `nvidia-smi`. No CUDA Toolkit, API key, GPU Taskman installation, or cloud service is required.
+**Requirements:** Windows 10/11, Python 3.11+ with Tkinter, Pillow 12.x, psutil 7.x, and an NVIDIA driver providing `nvidia-smi`. No CUDA Toolkit, API key, GPU Taskman installation, or cloud service is required.
 
 1. [Download the source ZIP](https://github.com/walladanger/New-gpu-monitor-4way4the4play/archive/refs/heads/main.zip) and extract the entire folder, or clone this repository.
 2. Install the dependency once:
@@ -146,6 +146,18 @@ CSV/PDF files go into `%LOCALAPPDATA%\GPU Live Graphs\exports`; graph images go 
 
 Data lives in `%LOCALAPPDATA%\GPU Live Graphs`: `history.sqlite3`, `preferences.json`, `diagnostic-settings.json`, `exports/`, and `captures/`. Session logs default to `D:\DEBUGGING LOGS` when D: exists, otherwise the data folder's `logs/`. Uninstall keeps this data. Storage failures leave monitoring available in memory and appear in the status/logs.
 
+## CPU, RAM and storage · 0.8.0
+
+The original four GPU graphs stay at the top. Scroll beneath them for **four configurable circular gauges**, expandable CPU/RAM/storage detail graphs and a collapsible **time occupancy heatmap**. Minimize the gauges to retain numerical readings. The **System** tab gives logical CPU traces more room, alongside RAM and storage panels.
+
+![System overview gauges beneath the GPU rack](docs/images/09-system-overview.png)
+
+Choose sensors, graph/gauge styles and colors using the same frosted menus. Settings survive restart. Heatmap colors encode recorded time in each value range, moving from yellow through red to purple. Clock GHz is system-reported rather than per-thread, and physical-disk I/O remains distinct from volume capacity.
+
+These new resource screenshots are actual Tk test-build captures on Linux with clearly labeled synthetic readings; they are not hardware benchmarks. [Resource controls, screenshots and current limits](docs/SYSTEM-RESOURCES.md).
+
+Resource data currently stays in memory; existing archived history, Replay and CSV/PDF exports cover GPU data. Background resource drawing and incremental decorative painting repair the responsiveness failure in the earlier draft. [Validation details](docs/VALIDATION-0.8.0.md).
+
 ## Where the data comes from
 
 **NVIDIA driver → `nvidia-smi` → shared background sampler → in-memory history → main/detached graphs and exports.**
@@ -185,6 +197,6 @@ python tools/capture_screenshots.py
 python tools/check_docs.py
 ```
 
-The screenshot tool opens **its own demo instance**, queries no GPU, and captures only that instance's windows. The eight screenshots show the 0.6.0 interface with clearly labeled synthetic data. Windows-specific checks require a Windows desktop session. The [Windows workflow](https://github.com/walladanger/New-gpu-monitor-4way4the4play/actions/workflows/windows-checks.yml) tests Python 3.11/3.14, builds the portable app/installer, verifies frozen rendering and exports, checks persistence across restart, then installs and uninstalls in an isolated directory. Versioned preview releases are created only after these checks pass.
+The screenshot tool opens **its own demo instance**, queries no GPU, and captures only that instance's windows. The original eight screenshots show the 0.6.0 interface with synthetic data. Three additional resource captures show the 0.8.0 Tk test build on Linux, also with synthetic data. Windows-specific checks require a Windows desktop session. The [Windows workflow](https://github.com/walladanger/New-gpu-monitor-4way4the4play/actions/workflows/windows-checks.yml) tests Python 3.11/3.14, builds the portable app/installer, verifies frozen rendering and exports, checks persistence across restart, then installs and uninstalls in an isolated directory. Versioned preview releases are created only after these checks pass.
 
 [User guide](docs/USER-GUIDE.md) · [Screenshot walkthrough](docs/FEATURE-TOUR.md) · [Design findings](docs/DESIGN-REVIEW.md) · [Contributing](CONTRIBUTING.md) · [License](LICENSE)

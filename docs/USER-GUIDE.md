@@ -1,4 +1,4 @@
-# GPU Live Graphs 0.6.0
+# GPU Live Graphs 0.8.0
 
 Four live NVIDIA graphs: GPU usage, VRAM, temperature and board power. Written in Python, with Tkinter windows and Pillow graph rendering.
 
@@ -114,3 +114,8 @@ For console errors, run `python gpu_live_graphs.py`. For driver availability, ru
 Global/local scope, colors, styles, transparency, clock/relative labels, emphasis, filters, history range, zoom, always-on-top, window positions, and up to 12 open detached views are saved every five seconds and on normal exit. GPU selection uses UUIDs. Positions are clamped to available monitors. Pins are not restored across sessions.
 
 Data is stored in `%LOCALAPPDATA%\GPU Live Graphs`: `history.sqlite3`, `preferences.json`, `diagnostic-settings.json`, `exports`, and `captures`. Session logs use the separately selected destination. Uninstall retains user data. Invalid preferences are backed up before replacement; newer schemas are preserved rather than overwritten. Archive corruption or I/O errors leave monitoring usable in memory and are reported in the status/logs.
+
+
+## CPU, RAM and storage
+
+Version 0.8.0 adds configurable circular gauges and expandable detail/heatmap panels beneath the GPU rack, plus a separate System tab. Read the [system resource guide](SYSTEM-RESOURCES.md) for controls, saved settings, units and current history/export limits.

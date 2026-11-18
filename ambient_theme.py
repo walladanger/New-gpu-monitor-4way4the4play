@@ -6,6 +6,7 @@ import math
 import os
 import time
 import tkinter as tk
+from collections import deque
 
 from PIL import Image
 
@@ -47,6 +48,9 @@ class AmbientTheme:
         self.root = root
         self.animated = animation_allowed()
         self.phase = 0.0
+        self._paint_job=None
+        self._pending=deque()
+        self._closed=False
         self.background = self.new_canvas(root)
         self.background.place(x=0,y=0,relwidth=1,relheight=1)
         root.tk.call("lower",self.background._w)
@@ -91,11 +95,49 @@ class AmbientTheme:
         for widget in list(self.root.winfo_children()):
             self.paint_widget(widget)
 
-    def paint_widget(self, widget):
+    def schedule_paint(self):
+        """Spread decorative Tk uploads across events instead of blocking input."""
+        if self._closed or self._paint_job is not None or not self.root.winfo_viewable():
+            return
+        self.phase=round((time.monotonic()/PERIOD)%1*512)/512 if self.animated else .15
+        self._pending=deque([self.background]+list(self.root.winfo_children()))
+        self._paint_job=self.root.after(1,self._paint_step)
+
+    def _paint_step(self):
+        self._paint_job=None
+        if self._closed:
+            return
+        deadline=time.perf_counter()+.004
+        while self._pending:
+            widget=self._pending.popleft()
+            if widget.winfo_exists():
+                if widget is self.background:
+                    self.paint_canvas(widget,self.root.winfo_width(),self.root.winfo_height(),BG,self.root)
+                elif self.paint_widget(widget,descend=False):
+                    self._pending.extend(widget.winfo_children())
+            if time.perf_counter()>=deadline:
+                break
+        if self._pending:
+            self._paint_job=self.root.after(16,self._paint_step)
+
+    def close(self):
+        self._closed=True
+        self._pending.clear()
+        if self._paint_job is not None:
+            self.root.after_cancel(self._paint_job)
+            self._paint_job=None
+
+    def paint_widget(self, widget, descend=True):
         if (getattr(widget,"_ambient_backing",False) or getattr(widget,"_ambient_exempt",False)
                 or isinstance(widget,tk.Toplevel)):
             return
         if not widget.winfo_ismapped():
+            return
+        # A mapped rack below the viewport can contain many large backing
+        # canvases. Paint it when scrolling brings it into view.
+        x=widget.winfo_rootx()-self.root.winfo_rootx()
+        y=widget.winfo_rooty()-self.root.winfo_rooty()
+        if x>=self.root.winfo_width() or y>=self.root.winfo_height() or x+widget.winfo_width()<=0 or y+widget.winfo_height()<=0:
             return
         if not hasattr(widget,"_ambient_base"):
             try:
@@ -105,7 +147,9 @@ class AmbientTheme:
             widget._ambient_base = base if base in (BG,PANEL) else None
         base = widget._ambient_base
         if base:
-            widget.configure(background=self.color(base,widget))
+            color=self.color(base,widget)
+            if widget.cget('background')!=color:
+                widget.configure(background=color)
             if isinstance(widget,tk.Frame):
                 if not hasattr(widget,"_ambient_canvas"):
                     canvas = self.new_canvas(widget)
@@ -121,6 +165,8 @@ class AmbientTheme:
                     self.paint_canvas(widget,widget.winfo_width(),widget.winfo_height(),base,widget)
         if getattr(widget,"_ambient_redraw",False):
             widget.draw()
-        for child in list(widget.winfo_children()):
-            self.paint_widget(child)
+        if descend:
+            for child in list(widget.winfo_children()):
+                self.paint_widget(child)
+        return True
 

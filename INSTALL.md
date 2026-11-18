@@ -1,16 +1,16 @@
-# Install GPU Live Graphs 0.7.0
+# Install GPU Live Graphs 0.8.0
 
 ## Download
 
-Open the [0.7.0 preview release](https://github.com/walladanger/New-gpu-monitor-4way4the4play/releases/tag/v0.7.0).
+Open the [0.8.0 preview release](https://github.com/walladanger/New-gpu-monitor-4way4the4play/releases/tag/v0.8.0).
 
 | File | Use |
 | --- | --- |
-| `GPU-Live-Graphs-0.7.0-Setup.exe` | Per-user installation, shortcuts, and uninstall support |
-| `GPU-Live-Graphs-0.7.0-Windows-x64.zip` | Portable application folder; extract everything before launching |
+| `GPU-Live-Graphs-0.8.0-Setup.exe` | Per-user installation, shortcuts, and uninstall support |
+| `GPU-Live-Graphs-0.8.0-Windows-x64.zip` | Portable application folder; extract everything before launching |
 | `SHA256SUMS-Windows.txt` | SHA-256 checksums for both packages |
 
-These packages include Python, Tk, and Pillow. An NVIDIA driver providing `nvidia-smi` is required; Python, a CUDA Toolkit, and an API key are not. The build is currently unsigned.
+These packages include Python, Tk, Pillow and psutil. An NVIDIA driver providing `nvidia-smi` is required; Python, a CUDA Toolkit, and an API key are not. The build is currently unsigned.
 
 ## Install and update
 
@@ -40,7 +40,7 @@ To reset preferences without losing a backup, close the app and rename `preferen
 ## Verify a download
 
 ```powershell
-Get-FileHash .\GPU-Live-Graphs-0.7.0-Setup.exe -Algorithm SHA256
+Get-FileHash .\GPU-Live-Graphs-0.8.0-Setup.exe -Algorithm SHA256
 ```
 
 Compare the value with the release's checksum file.

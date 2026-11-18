@@ -1,6 +1,6 @@
 # GPU Live Graphs · Roadmap
 
-Reviewed November 13, 2026 against standalone **0.6.0 preview**. This roadmap belongs to this repository, not the separate C# GPU-Monitoring app. Priorities describe recommended order, not delivery dates.
+Reviewed November 18, 2026 against standalone **0.8.0 preview**. This roadmap belongs to this repository, not the separate C# GPU-Monitoring app. Priorities describe recommended order, not delivery dates.
 
 ## Current requested order
 
@@ -83,7 +83,8 @@ Tray monitoring, alerts, and process details in this section are deferred until 
 ## P3 · Runtime insights and broader hardware
 
 - [ ] Active requests, tokens/sec, and TTFT through real runtime/server adapters. These cannot be derived from GPU utilization.
-- [ ] Optional CPU/RAM context while preserving the four default GPU panels.
+- [x] CPU/RAM/storage context, four configurable gauges, expandable detail panels, saved settings and system occupancy heatmaps while preserving four GPU panels.
+- [ ] Archive/replay/export system telemetry and add GPU heatmaps.
 - [ ] AMD/Intel collectors with explicit capabilities and validation.
 - [ ] Evaluate GPU Taskman integration separately. There is no current dependency or integration.
 
@@ -93,4 +94,4 @@ Preserve the four data panels and measurement hierarchy. Stack narrow layouts ve
 
 ## Decisions still needed
 
-Packaging uses PyInstaller plus Inno Setup. Initial archive limits are 24 hours and a 128 MB database cap. Signing, user-configurable archive limits, and later alert delivery choices remain open. Unchecked work is not included in version 0.6.0.
+Packaging uses PyInstaller plus Inno Setup. Initial archive limits are 24 hours and a 128 MB database cap. Signing, user-configurable archive limits, and later alert delivery choices remain open. Unchecked work is not included in version 0.8.0.

@@ -9,6 +9,7 @@ import tempfile
 import uuid
 
 from chart_view import LINE_STYLES, normalize_color
+from resource_preferences import validate_resources
 
 HISTORY_NAMES={'30 seconds','1 minute','2 minutes','5 minutes','10 minutes','15 minutes','30 minutes','45 minutes','1 hour'}
 METRIC_KEYS={'utilization','memory','temperature','power'}
@@ -82,7 +83,8 @@ def validate(value):
             item=view(data)
             item.update(metric=data['metric'],bounds=bounds(data.get('bounds')),maximized=data.get('maximized') is True)
             detached.append(item)
-    return {'schema':1,'main':main,'detached':detached,'gpu_settings':view(value.get('gpu_settings',{}))}
+    return {'schema':1,'main':main,'detached':detached,'gpu_settings':view(value.get('gpu_settings',{})),
+            'resources':validate_resources(value.get('resources'))}
 
 
 class Preferences:
