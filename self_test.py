@@ -69,6 +69,21 @@ def run(report_path):
         assert app.charts[0].time_mode=='clock'
         assert app.window_choice.get()=='1 hour'
         result['checks'].append('SQLite history and preferences survive restart')
+        app.show_replay()
+        deadline=time.monotonic()+8
+        while (app.replay_loading or app.replay_track is None) and time.monotonic()<deadline:
+            app.poll_history()
+            app.update()
+            time.sleep(.02)
+        assert app.replay_track is not None and len(app.replay_track.records)==30
+        assert app.replay_track.current().readings[0].utilization==0.0
+        app.replay_end()
+        assert app.replay_track.current().readings[0].utilization==29.0
+        assert not app.replay_track.playing
+        app.show_live()
+        app.update()
+        assert app.active_tab=='live'
+        result['checks'].append('Replay tab loads last archived session, reaches final exact sample and returns to Live')
         result['success']=True
     except Exception:
         result['error']=traceback.format_exc()
