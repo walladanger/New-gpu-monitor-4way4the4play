@@ -503,9 +503,12 @@ class Dashboard(tk.Tk):
 
     def setup_replay_tab(self):
         """A separate, extensible view; source data and the live view stay isolated."""
+        sources = tk.Frame(self.replay_page, bg=BG)
+        sources.pack(fill="x", padx=24, pady=(12, 3))
+        button(sources, "Load last recording", self.load_replay).pack(side="left", padx=(0, 8))
+        button(sources, "Snapshot this session", lambda: self.load_replay(current=True)).pack(side="left")
         bar = tk.Frame(self.replay_page, bg=BG)
-        bar.pack(fill="x", padx=24, pady=(12, 7))
-        button(bar, "Load last recording", self.load_replay).pack(side="left", padx=(0, 7))
+        bar.pack(fill="x", padx=24, pady=(3, 7))
         self.replay_restart_button = button(bar, "Restart", self.replay_restart)
         self.replay_restart_button.pack(side="left", padx=4)
         self.replay_play_button = button(bar, "Play", self.replay_play)
@@ -631,12 +634,13 @@ class Dashboard(tk.Tk):
         self.replay_status.configure(wraplength=max(350, self.winfo_width() - 48))
         self.schedule_redraw()
 
-    def load_replay(self):
+    def load_replay(self, current=False):
         self.replay_pause()
         self.replay_loading = True
-        self.replay_status.configure(text="Loading newest retained recording from local history…")
+        self.replay_status.configure(text="Loading recorded samples from local history…")
         if self.store:
-            if not self.store.replay_latest():
+            requested = self.store.replay_current() if current else self.store.replay_latest()
+            if not requested:
                 self.replay_loading = False
                 self.replay_status.configure(
                     text="History writer is busy. Select Load last recording to retry.")
@@ -666,7 +670,9 @@ class Dashboard(tk.Tk):
             start = datetime.fromtimestamp(track.start).strftime("%b %d, %H:%M:%S")
             finish = datetime.fromtimestamp(track.end).strftime("%b %d, %H:%M:%S")
             current = datetime.fromtimestamp(track.position).strftime("%b %d, %H:%M:%S")
-            source = "In-memory preview" if track.session == "in-memory" else "Recorded session"
+            source = ("In-memory preview" if track.session == "in-memory" else
+                      "Current session snapshot" if self.store and track.session == self.store.session else
+                      "Last completed recording")
             state = "PLAYING" if track.playing else "END" if track.fraction == 1 else "READY"
             message = (f"{source} · {start} → {finish} · "
                        f"{current} · sample {track.index+1}/{len(track.records)} · {state}")
