@@ -796,12 +796,22 @@ class Dashboard(tk.Tk):
             chart.line_styles=dict(self.global_styles)
             chart.series_opacity=dict(self.global_opacity)
         self.colors.update(self.global_colors)
-        for uid,label in self.legend_labels.items():
-            label.configure(fg=self.colors[uid])
+        self.update_legend_focus()
+
+    def update_legend_focus(self):
+        """Slightly dim unselected legend labels without losing their GPU colors."""
+        selected = self.charts[0].focus_set if self.charts else set()
+        for uid, label in self.legend_labels.items():
+            color = self.colors.get(uid, COLORS[0])
+            label.configure(fg=dim_color(color) if selected and uid not in selected else color)
 
     def toggle_global_gpu_settings(self):
         if self.global_gpu_settings.get():
             self.sync_global_settings()
+            selection = set(self.charts[0].focus_set)
+            for chart in self.all_charts():
+                chart.focus_set = set(selection)
+        self.update_legend_focus()
         logging.getLogger('gpu_live_graphs').info('Global GPU settings=%s',self.global_gpu_settings.get())
         self.schedule_redraw()
 
@@ -827,7 +837,7 @@ class Dashboard(tk.Tk):
             if kind=='colors':
                 self.colors[uuid]=value
                 if uuid in self.legend_labels:
-                    self.legend_labels[uuid].configure(fg=value)
+                    self.update_legend_focus()
         for target in targets:
             getattr(target,attribute)[uuid]=value
         chart.refresh()
@@ -882,7 +892,9 @@ class Dashboard(tk.Tk):
         chart.line_styles=dict(state.get('styles',{}))
         chart.series_opacity=dict(state.get("opacity",{}))
         chart.time_mode=state.get("time_mode","relative")
-        chart.focused_uuid=state.get('focus')
+        chart.focus_set=set(state.get('focus_uuids', []))
+        if not chart.focus_set and state.get('focus'):
+            chart.focused_uuid=state['focus']
         chart.view.zoom=state.get('zoom',1)
         chart.view.lag=state.get('lag',0)
 
@@ -923,6 +935,7 @@ class Dashboard(tk.Tk):
         colors={uid:chart.series_color(uid) for uid in self.devices}
         colors.update(chart.series_colors)
         return {'colors':colors,'styles':chart.line_styles,'opacity':chart.series_opacity,'time_mode':chart.time_mode,'focus':chart.focused_uuid,
+                'focus_uuids':sorted(chart.focus_set),
                 'zoom':chart.view.zoom,'lag':chart.view.lag}
 
     def preference_state(self):
@@ -1055,9 +1068,15 @@ class Dashboard(tk.Tk):
         return ExportMenu(self, charts or self.charts, source or self.export_button)
 
     def focus_all(self, uuid):
-        target = None if all(chart.focused_uuid == uuid for chart in self.charts) else uuid
-        for chart in self.charts:
-            chart.focused_uuid = target
+        selected = set(self.charts[0].focus_set)
+        if uuid in selected:
+            selected.remove(uuid)
+        else:
+            selected.add(uuid)
+        targets = self.all_charts() if self.global_gpu_settings.get() else self.charts
+        for chart in targets:
+            chart.focus_set = set(selected)
+        self.update_legend_focus()
         self.redraw()
 
     def toggle_pause(self):
@@ -1091,6 +1110,7 @@ class Dashboard(tk.Tk):
         names = gpu_labels(self.devices)
         for uid, label in self.legend_labels.items():
             label.configure(text=f"● {names[uid]}")
+        self.update_legend_focus()
         self.gpu_choice.configure(values=["All GPUs"] + list(names.values()))
         for root in [self]+self.detached:
             root.gpu_choice.configure(values=self.gpu_choice.cget('values'))
