@@ -105,5 +105,36 @@ class ReplayArchiveTests(unittest.TestCase):
                 second.close()
 
 
+
+
+class ReplayDashboardTests(unittest.TestCase):
+    def test_replay_tab_does_not_override_live_stream_or_future_samples(self):
+        from dashboard import Dashboard
+        app = Dashboard(collect=False)
+        try:
+            now = time.time()
+            first, second = snapshot(now-4, 10), snapshot(now, 90)
+            app.accept(first)
+            app.accept(second)
+            original_live = tuple(app.history)
+
+            app.show_replay()
+            app.update()
+            self.assertEqual(app.active_tab, "replay")
+            self.assertFalse(app.live_page.winfo_ismapped())
+            self.assertTrue(app.replay_page.winfo_ismapped())
+            self.assertEqual(len(app.replay_charts), 4)
+            self.assertEqual(len(app.replay_track.records), 2)
+            self.assertEqual(app.replay_context()[0][-1].wall_time, first.wall_time)
+            self.assertEqual(app.replay_context()[-1], frozenset({"GPU-A"}))
+            app.replay_end()
+            self.assertEqual(app.replay_context()[0][-1].wall_time, second.wall_time)
+            app.show_live()
+            self.assertEqual(app.active_tab, "live")
+            self.assertEqual(tuple(app.history), original_live)
+            self.assertTrue(app.live_page.winfo_ismapped())
+        finally:
+            app.close()
+
 if __name__ == "__main__":
     unittest.main()
