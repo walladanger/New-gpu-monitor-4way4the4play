@@ -81,6 +81,32 @@ class MultiGpuHighlightTests(unittest.TestCase):
         finally:
             app.close()
 
+    def test_two_highlights_survive_preferences_restart_and_detached_window(self):
+        with tempfile.TemporaryDirectory() as folder:
+            app = Dashboard(collect=False, persist=False, preferences=True, data_dir=folder)
+            try:
+                now = time.monotonic()
+                readings = tuple(
+                    Reading(str(i), f"GPU-{i}", f"RTX 3090 #{i}", 22+i*15, 2, 24, 45, 115, 310)
+                    for i in range(3)
+                )
+                app.accept(Snapshot(now, time.time(), readings))
+                for chart in app.charts:
+                    chart.focus_set = {"GPU-0", "GPU-2"}
+                detached = app.open_window(app.charts[0])
+                self.assertEqual(detached.chart.focus_set, {"GPU-0", "GPU-2"})
+                app.save_preferences()
+            finally:
+                app.close()
+            restored = Dashboard(collect=False, persist=False, preferences=True, data_dir=folder)
+            try:
+                self.assertEqual(restored.charts[0].focus_set, {"GPU-0", "GPU-2"})
+                self.assertEqual(restored.charts[3].focus_set, {"GPU-0", "GPU-2"})
+                self.assertTrue(restored.detached)
+                self.assertEqual(restored.detached[0].chart.focus_set, {"GPU-0", "GPU-2"})
+            finally:
+                restored.close()
+
     def test_multiselect_is_saved_and_old_single_selection_restores(self):
         result = validate({"schema": 1, "main": {"charts": {
             "utilization": {"focus_uuids": ["GPU-A", "GPU-C", "GPU-C", "", None]},
