@@ -80,14 +80,14 @@ Names come from the driver. Identical cards receive labels such as **RTX 3090 #1
 
 ![Selected GPU name, editable color field, hue slider, and five visual line options](docs/images/02-line-options.png)
 
-Click a GPU name **inside a panel** to emphasize its trace and dim the others. **Global GPU settings is on by default**: focus and appearance follow the same GPU across all main and detached data windows. Uncheck it to edit only the clicked window. Its frosted menu contains:
+Click a GPU name **inside a panel** to add or remove it from the highlighted set. You can highlight **several GPUs simultaneously**. All GPU traces and value labels retain their assigned colors; only non-highlighted traces are slightly dimmed (not turned gray). **Global GPU settings is on by default**: highlighting and appearance propagate across the main, detached and Replay panels. Uncheck it to edit only the clicked window. Its frosted menu contains:
 
 - **Color input:** type `#RRGGBB` or `#RGB`; valid complete colors preview immediately.
 - **Hue slider:** change the color visually.
 - **Transparency slider:** fade that GPU's line and shading from opaque to invisible, keeping grid labels readable.
 - **Five visual styles:** Line, Filled, Gradient, Dashed, and Hatched.
 
-Click the same name again to restore equal emphasis. The top legend can focus one GPU across all four main panels. Exports stay in the toolbar, keeping this menu focused on appearance.
+Click a highlighted name again to remove that GPU from the highlighted set, or remove all highlights to restore equal emphasis. The top legend supports the same additive selection across the four main panels. GPU colors and multi-selection are saved with preferences. Exports stay in the toolbar, keeping this menu focused on appearance.
 
 ### 03 · Pin the moment. Compare the details.
 
