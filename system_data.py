@@ -87,6 +87,8 @@ class SystemSampler:
                                    ("ram:cached","cached")):
                 number=_nonnegative(getattr(ram,attribute,None))
                 values[key]=number / GIB if number is not None else None
+            total=_nonnegative(getattr(ram,"total",None))
+            values["ram:total"]=total/GIB if total is not None else None
             values["ram:used_pct"]=_nonnegative(getattr(ram,"percent",None))
         except (OSError, RuntimeError, ValueError):
             values["ram:used_pct"]=None
