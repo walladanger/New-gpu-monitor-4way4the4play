@@ -21,6 +21,10 @@ existing read-only graph engine. **Introduced in 0.7.0 preview; not available in
 6. Select **Live** to return to current NVIDIA driver readings. Recording
    continues independently while Replay is visible.
 
+## Highlighting GPUs in Replay
+
+Click several GPU names to emphasize multiple recorded traces at once. Every GPU keeps its own assigned color; only non-highlighted traces dim slightly. With Global GPU settings on, the highlighted set is shared across all panels. The replay data and samples do not change when highlighting changes.
+
 ## Data fidelity and coverage
 
 - The SQLite archive already records GPU UUID/name, utilization, VRAM
