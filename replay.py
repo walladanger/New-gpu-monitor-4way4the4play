@@ -81,7 +81,7 @@ class ReplayTrack:
 
     def available(self):
         sample = self.current()
-        if sample is None or self.position - sample.wall_time > 2.5:
+        if sample is None or self.position - sample.wall_time > 1.5:
             return frozenset()
         return frozenset(reading.uuid for reading in sample.readings)
 
