@@ -15,7 +15,7 @@ MODE_PREFIXES={
     "cpu_percent": ("cpu:total","cpu:thread:"),
     "cpu_clock": ("cpu:clock",),
     "ram_percent": ("ram:used_pct",),
-    "ram_capacity": ("ram:used","ram:available","ram:cached"),
+    "ram_capacity": ("ram:used","ram:available","ram:cached","ram:total"),
     "disk_rate": ("disk:total:","disk:physical:"),
     "disk_capacity": ("disk:volume:",),
 }
@@ -37,6 +37,10 @@ def available_series(mode,history):
     keys=set()
     for snapshot in history:
         keys.update(k for k in snapshot.values if valid_series(mode,k))
+    return sort_series(keys)
+
+
+def sort_series(keys):
     def sort_key(key):
         if key.startswith("cpu:thread:"):
             try:
@@ -54,7 +58,7 @@ def series_label(key):
         return "Reported CPU clock"
     if key.startswith("cpu:thread:"):
         return f"Logical CPU {int(key.rsplit(':',1)[1])+1}"
-    names={"ram:used":"RAM used","ram:available":"RAM available",
+    names={"ram:used":"RAM used","ram:available":"RAM available","ram:total":"Installed RAM",
            "ram:cached":"Cached RAM","ram:used_pct":"RAM used",
            "disk:total:read":"All disks · read","disk:total:write":"All disks · write"}
     if key in names:

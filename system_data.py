@@ -12,6 +12,7 @@ import queue
 import threading
 import time
 from typing import Mapping
+from types import MappingProxyType
 
 GIB = float(1024 ** 3)
 MIB = float(1024 ** 2)
@@ -22,6 +23,9 @@ class SystemSnapshot:
     stamp: float
     wall_time: float
     values: Mapping[str, float | None]
+
+    def __post_init__(self):
+        object.__setattr__(self,'values',MappingProxyType(dict(self.values)))
 
 
 def _nonnegative(value):
@@ -40,7 +44,6 @@ def _volume_id(device):
 class SystemSampler:
     def __init__(self, api):
         self.api = api
-        self.previous_stamp = None
         self.previous_io = {}
 
     def _rate(self, key, counter, stamp):
@@ -49,10 +52,10 @@ class SystemSampler:
         except (AttributeError, ValueError, TypeError, OverflowError):
             return None, None
         previous = self.previous_io.get(key)
-        self.previous_io[key] = (read, write)
-        if previous is None or self.previous_stamp is None or stamp <= self.previous_stamp:
+        self.previous_io[key] = (read, write, stamp)
+        if previous is None or stamp <= previous[2]:
             return None, None
-        interval = stamp - self.previous_stamp
+        interval = stamp - previous[2]
         if read < previous[0] or write < previous[1]:
             return None, None
         return ((read-previous[0])/(interval*MIB),
@@ -105,7 +108,7 @@ class SystemSampler:
                     usage=p.disk_usage(partition.mountpoint)
                 except (OSError, PermissionError, ValueError):
                     continue
-                for key,attribute in (("used","used"),("free","free")):
+                for key,attribute in (("used","used"),("free","free"),("total","total")):
                     n=_nonnegative(getattr(usage,attribute,None))
                     values[f"disk:volume:{disk}:{key}"]=n/GIB if n is not None else None
         except (OSError, RuntimeError, ValueError):
@@ -128,7 +131,6 @@ class SystemSampler:
         except (OSError, RuntimeError, ValueError):
             pass
 
-        self.previous_stamp=stamp
         return SystemSnapshot(stamp,wall_time,values)
 
 
@@ -146,6 +148,15 @@ class SystemCollector:
         self.thread.start()
 
     def run(self):
+        # psutil's first nonblocking CPU-percent call only establishes a
+        # baseline. Prime it on this worker, then wait for a measured interval.
+        try:
+            self.sampler.api.cpu_percent(interval=None,percpu=True)
+            self.sampler.api.cpu_percent(interval=None,percpu=False)
+        except (OSError,RuntimeError,ValueError):
+            pass
+        if self.stop.wait(1):
+            return
         while not self.stop.is_set():
             started=time.monotonic()
             try:

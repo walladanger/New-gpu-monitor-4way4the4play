@@ -5,7 +5,6 @@ All widgets are native Tk and Pillow, matching the existing GPU dashboard.
 from __future__ import annotations
 import time
 import tkinter as tk
-from tkinter import colorchooser
 
 from graph_scene import BG, PANEL, TEXT, MUTED, GRID, COLORS
 from resource_analytics import (GAUGE_DEFAULTS, GAUGE_STYLES, HEATMAP_DEFAULT,
@@ -13,6 +12,7 @@ from resource_analytics import (GAUGE_DEFAULTS, GAUGE_STYLES, HEATMAP_DEFAULT,
     render_gauge, render_occupancy)
 from system_graph import series_label
 from ui_resources import PhotoImage
+from resource_menu import ResourceMenu,ColorMenu,option
 
 
 BUTTON_STYLE=dict(bg=GRID,fg=TEXT,activebackground="#36475B",activeforeground=TEXT,
@@ -38,7 +38,6 @@ class ResourceGauge(tk.Frame):
         self.title.pack(fill="x",padx=9,pady=(8,2))
         self.numeric=tk.Label(self,bg=PANEL,fg=TEXT,font=("Segoe UI",15,"bold"),
                               text="—",anchor="center")
-        self.numeric.pack(fill="x",padx=7,pady=(1,2))
         self.canvas=tk.Canvas(self,bg=PANEL,width=155,height=145,highlightthickness=0)
         self.canvas._ambient_own_surface=True
         self.canvas.pack(fill="both",expand=True,padx=8,pady=(1,7))
@@ -46,46 +45,25 @@ class ResourceGauge(tk.Frame):
         options=tk.Frame(self,bg=PANEL)
         options.pack(fill="x",padx=8,pady=(0,8))
         self.options=options
-        self.metric_menu=tk.Menu(self,tearoff=False,bg=PANEL,fg=TEXT,
-                                 activebackground=GRID,activeforeground=TEXT)
-        self.metric_button=tk.Menubutton(options,text="Sensor  ▾",menu=self.metric_menu,
-                                         **BUTTON_STYLE)
+        self.metric_button=tk.Button(options,text="Sensor  ▾",command=lambda:ResourceMenu(self.metric_button,"Sensor",self.metric_options),**BUTTON_STYLE)
         self.metric_button.pack(side="left")
-        self.style_menu=tk.Menu(self,tearoff=False,bg=PANEL,fg=TEXT,
-                                activebackground=GRID,activeforeground=TEXT)
-        self.style_button=tk.Menubutton(options,text="Style / color  ▾",menu=self.style_menu,
-                                        **BUTTON_STYLE)
+        self.style_button=tk.Button(options,text="Style / color  ▾",command=lambda:ResourceMenu(self.style_button,"Gauge appearance",self.style_options),**BUTTON_STYLE)
         self.style_button.pack(side="right")
-        self.make_style_menu()
-        self.make_metric_menu()
         self.canvas.bind("<Configure>",lambda _:self.controller.schedule_redraw())
 
-    def make_metric_menu(self):
-        self.metric_menu.delete(0,"end")
-        keys=self.known_keys or GAUGE_DEFAULTS
-        for key in keys[:160]:
-            self.metric_menu.add_command(label=series_label(key),
-                                         command=lambda k=key:self.set_metric(k))
-        if len(keys)>160:
-            self.metric_menu.add_command(label="Additional sensors not shown",state="disabled")
+    def metric_options(self):
+        return [option(series_label(key),lambda k=key:self.set_metric(k),key==self.spec.metric)
+                for key in (self.known_keys or GAUGE_DEFAULTS)]
 
-    def make_style_menu(self):
-        self.style_menu.delete(0,"end")
-        for style in GAUGE_STYLES:
-            self.style_menu.add_command(label=("● " if self.spec.style==style else "    ")+style,
-                                        command=lambda s=style:self.set_style(s))
-        colors=tk.Menu(self.style_menu,tearoff=False,bg=PANEL,fg=TEXT,
-                       activebackground=GRID,activeforeground=TEXT)
-        for name,color in zip(("Mint","Blue","Amber","Violet","Rose","Lime"),COLORS):
-            colors.add_command(label=name,command=lambda c=color:self.set_color(c))
-        colors.add_separator()
-        colors.add_command(label="Custom color…",command=self.choose_color)
-        self.style_menu.add_cascade(label="Gauge color",menu=colors)
+    def style_options(self):
+        rows=[option(style,lambda s=style:self.set_style(s),style==self.spec.style) for style in GAUGE_STYLES]
+        rows.extend(option(name,lambda c=color:self.set_color(c)) for name,color in
+                    zip(("Mint","Blue","Amber","Violet","Rose","Lime"),COLORS))
+        rows.append(option("Custom color…",self.choose_color))
+        return rows
 
     def choose_color(self):
-        color=colorchooser.askcolor(color=self.spec.color,parent=self,title="Gauge color")
-        if color and color[1]:
-            self.set_color(color[1])
+        self.after_idle(lambda:ColorMenu(self.style_button,self.spec.color,self.set_color))
 
     def set_metric(self,metric):
         if metric not in (self.known_keys or GAUGE_DEFAULTS):
@@ -98,13 +76,11 @@ class ResourceGauge(tk.Frame):
         if style not in GAUGE_STYLES:
             raise ValueError("Unknown gauge style")
         self.spec.style=style
-        self.make_style_menu()
         self.controller.schedule_redraw()
 
     def set_color(self,color):
         from chart_view import normalize_color
         self.spec.color=normalize_color(color)
-        self.make_style_menu()
         self.controller.schedule_redraw()
 
     def set_compact(self,compact):
@@ -112,10 +88,14 @@ class ResourceGauge(tk.Frame):
             return
         self.compact=compact
         if compact:
+            if self.controller.render_pipeline:
+                self.controller.render_pipeline.discard(self)
             self.canvas.pack_forget()
             self.options.pack_forget()
+            self.numeric.pack(fill='x',padx=7,pady=(1,8))
         else:
             self._last_frame_key=None
+            self.numeric.pack_forget()
             self.canvas.pack(fill="both",expand=True,padx=8,pady=(1,7))
             self.options.pack(fill="x",padx=8,pady=(0,8))
 
@@ -124,7 +104,6 @@ class ResourceGauge(tk.Frame):
         keys=available_metrics(self.history[-2:])
         if keys!=self.known_keys:
             self.known_keys=keys
-            self.make_metric_menu()
         # An unavailable clock, drive or CPU sensor is shown as unavailable,
         # never replaced silently by a different available metric.
         self.title.configure(text=series_label(self.spec.metric))
@@ -144,13 +123,21 @@ class ResourceGauge(tk.Frame):
             return
         limit=gauge_limit(self.spec.metric,self.history[-300:])
         frame_key=(width,height,self.spec.metric,value,limit,label,self.spec.color,self.spec.style)
-        if frame_key==self._last_frame_key:
+        if not self.controller.async_render and frame_key==self._last_frame_key:
             return
-        picture=render_gauge(width,height,value,limit,label,self.spec.color,self.spec.style)
-        self.photo=PhotoImage(picture,master=self.canvas)
-        self._last_frame_key=frame_key
-        self.canvas.backdrop_image=picture
-        self.canvas.itemconfigure(self.image_item,image=self.photo)
+        args=(width,height,value,limit,label,self.spec.color,self.spec.style)
+        presentation=(width,height,self.spec.metric,self.spec.color,self.spec.style)
+        def apply(picture):
+            if self.compact or self.controller._closed:
+                return
+            self.photo=PhotoImage(picture,master=self.canvas)
+            self._last_frame_key=frame_key
+            self.canvas.backdrop_image=picture
+            self.canvas.itemconfigure(self.image_item,image=self.photo)
+        if self.controller.async_render:
+            self.controller.queue_frame(self,frame_key,presentation,args,{},apply,draw=render_gauge)
+        else:
+            apply(render_gauge(*args))
 
 
 class ResourceOverview(tk.Frame):
@@ -224,16 +211,12 @@ class OccupancyHeatmapPanel(tk.Frame):
         controls=tk.Frame(self.body,bg=PANEL)
         controls.pack(fill="x",padx=12,pady=(0,5))
         tk.Label(controls,text="Sensor",fg=MUTED,bg=PANEL).pack(side="left")
-        self.sensor_menu=tk.Menu(self,tearoff=False,bg=PANEL,fg=TEXT)
-        self.sensor_button=tk.Menubutton(controls,text="CPU total  ▾",
-                                        menu=self.sensor_menu,**BUTTON_STYLE)
+        self.sensor_button=tk.Button(controls,text="CPU total  ▾",
+            command=lambda:ResourceMenu(self.sensor_button,"Heatmap sensor",self.sensor_options),**BUTTON_STYLE)
         self.sensor_button.pack(side="left",padx=(6,14))
         tk.Label(controls,text="Window",fg=MUTED,bg=PANEL).pack(side="left")
-        menu=tk.Menu(self,tearoff=False,bg=PANEL,fg=TEXT)
-        for label in HEATMAP_WINDOWS:
-            menu.add_command(label=label,command=lambda value=label:self.set_window(value))
-        self.window_button=tk.Menubutton(controls,text=self.range_name+"  ▾",
-                                         menu=menu,**BUTTON_STYLE)
+        self.window_button=tk.Button(controls,text=self.range_name+"  ▾",
+            command=lambda:ResourceMenu(self.window_button,"Heatmap window",self.window_options),**BUTTON_STYLE)
         self.window_button.pack(side="left",padx=6)
         tk.Label(self.body,text="More recorded time in each cell → yellow, red, then purple. Missing samples and gaps are not counted.",
                  fg=MUTED,bg=PANEL,font=("Segoe UI",9),anchor="w",wraplength=850).pack(
@@ -244,11 +227,19 @@ class OccupancyHeatmapPanel(tk.Frame):
         self.image_item=self.canvas.create_image(0,0,anchor="nw")
         self.canvas.bind("<Configure>",lambda _:self.controller.schedule_redraw())
 
+    def sensor_options(self):
+        return [option(series_label(key),lambda k=key:self.set_metric(k),key==self.metric) for key in self._known]
+
+    def window_options(self):
+        return [option(name,lambda n=name:self.set_window(n),name==self.range_name) for name in HEATMAP_WINDOWS]
+
     def toggle(self):
         self.set_expanded(not self.expanded)
 
     def set_expanded(self,value):
         self.expanded=bool(value)
+        if not self.expanded and self.controller.render_pipeline:
+            self.controller.render_pipeline.discard(self)
         self.toggle_button.configure(text=("▾" if value else "▸")+
                                      "  ADVANCED ANALYTICS · TIME OCCUPANCY HEATMAP")
         if self.expanded:
@@ -275,21 +266,23 @@ class OccupancyHeatmapPanel(tk.Frame):
     def render(self,history,now):
         if not self.expanded:
             return
-        keys=available_metrics(history)
+        keys=available_metrics(tuple(history)[-2:],self._known)
         if keys!=self._known:
             self._known=keys
-            self.sensor_menu.delete(0,"end")
-            for key in keys[:128]:
-                self.sensor_menu.add_command(label=series_label(key),
-                                             command=lambda k=key:self.set_metric(k))
-        if self.metric not in keys and keys:
-            self.metric=keys[0]
-            self.sensor_button.configure(text=series_label(self.metric)+"  ▾")
         width,height=self.canvas.winfo_width(),self.canvas.winfo_height()
         if width<150 or height<100:
             return
-        picture=render_occupancy(width,height,history,self.metric,now,
-                                 HEATMAP_WINDOWS[self.range_name])
-        self.photo=PhotoImage(picture,master=self.canvas)
-        self.canvas.backdrop_image=picture
-        self.canvas.itemconfigure(self.image_item,image=self.photo)
+        history=tuple(history)
+        args=(width,height,history,self.metric,now,HEATMAP_WINDOWS[self.range_name])
+        presentation=(width,height,self.metric,self.range_name)
+        key=(presentation,len(history),history[-1].stamp if history else None,round(now,1))
+        def apply(picture):
+            if not self.expanded or self.controller._closed:
+                return
+            self.photo=PhotoImage(picture,master=self.canvas)
+            self.canvas.backdrop_image=picture
+            self.canvas.itemconfigure(self.image_item,image=self.photo)
+        if self.controller.async_render:
+            self.controller.queue_frame(self,key,presentation,args,{},apply,draw=render_occupancy)
+        else:
+            apply(render_occupancy(*args))

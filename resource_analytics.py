@@ -15,7 +15,7 @@ from system_graph import series_label
 GAUGE_STYLES=("Ring","Pie","Arc")
 GAUGE_DEFAULTS=("cpu:total","cpu:clock","ram:used_pct","disk:total:read")
 METRIC_UNITS={"cpu:total":"%","cpu:clock":"GHz","ram:used_pct":"%",
-              "ram:used":"GiB","ram:available":"GiB","ram:cached":"GiB"}
+              "ram:used":"GiB","ram:available":"GiB","ram:cached":"GiB","ram:total":"GiB"}
 HEATMAP_DEFAULT="cpu:total"
 HEATMAP_WINDOWS={"1 minute":60,"5 minutes":300,"15 minutes":900,"1 hour":3600}
 
@@ -41,8 +41,8 @@ def metric_value(key,snapshot):
     return (snapshot.values.get(key) if snapshot else None, metric_unit(key))
 
 
-def available_metrics(history):
-    found=set()
+def available_metrics(history,known=()):
+    found=set(known)
     for snapshot in history:
         found.update(k for k in snapshot.values if isinstance(k,str) and (
             k.startswith("cpu:") or k.startswith("ram:") or k.startswith("disk:")))
@@ -63,6 +63,12 @@ def gauge_limit(key,history):
         limits=[v for v in totals if isinstance(v,(int,float)) and v>0]
         if limits:
             return max(limits)
+    if key.startswith('disk:volume:'):
+        total_key=key.rsplit(':',1)[0]+':total'
+        totals=[s.values.get(total_key) for s in history]
+        limits=[v for v in totals if _valid_reading(v) and v>0]
+        if limits:
+            return max(limits)
     values=[s.values.get(key) for s in history]
     seen=[v for v in values if isinstance(v,(int,float)) and math.isfinite(v) and v>0]
     return max(1.0,max(seen or [1.0]))
@@ -77,7 +83,8 @@ def render_gauge(width,height,value,limit,label,color,style):
     side=min(width,height)
     thick=max(7,round(side*.09))
     margin=max(13,round(side*.13))
-    oval=(margin,margin,width-margin,height-margin)
+    radius=side/2-margin
+    oval=(width/2-radius,height/2-radius,width/2+radius,height/2+radius)
     if style not in GAUGE_STYLES:
         style="Ring"
     if style=="Pie":
@@ -102,6 +109,16 @@ def _valid_reading(value):
     return isinstance(value,(int,float)) and math.isfinite(value) and value>=0
 
 
+def metric_bounds(history,metric,now,seconds):
+    relevant=[s.values.get(metric) for s in history if now-seconds-2.5<=s.stamp<=now and _valid_reading(s.values.get(metric))]
+    high=100.0 if metric in ('cpu:total','ram:used_pct') or metric.startswith('cpu:thread:') else max(1.0,max(relevant or [1.0]))
+    # Clock differences of a few tenths of a GHz should occupy distinct bands.
+    low=min(relevant) if metric=='cpu:clock' and relevant else 0.0
+    if low>=high:
+        low=max(0,high-.5)
+    return low,high
+
+
 def occupancy_bins(history,metric,now,seconds,columns=20,bands=10):
     """Count observed seconds in each time/value cell using sample-hold intervals.
 
@@ -112,9 +129,8 @@ def occupancy_bins(history,metric,now,seconds,columns=20,bands=10):
         raise ValueError("Invalid occupancy bin layout")
     rows=[[0.0]*columns for _ in range(bands)]
     history=tuple(sorted(history,key=lambda s:s.stamp))
-    relevant=[s.values.get(metric) for s in history if _valid_reading(s.values.get(metric))]
-    scale=100.0 if (metric in ("cpu:total","ram:used_pct") or metric.startswith("cpu:thread:")) else max(1.0,max(relevant or [1.0]))
     start=now-seconds
+    low,scale=metric_bounds(history,metric,now,seconds)
     bucket_size=seconds/columns
     for previous,current in zip(history,history[1:]):
         gap=current.stamp-previous.stamp
@@ -127,7 +143,7 @@ def occupancy_bins(history,metric,now,seconds,columns=20,bands=10):
         right=min(now,current.stamp)
         if right<=left:
             continue
-        band=min(bands-1,int(min(value/scale,1)*bands))
+        band=max(0,min(bands-1,int(min((value-low)/(scale-low),1)*bands)))
         first=max(0,min(columns-1,int((left-start)/bucket_size)))
         last=max(0,min(columns-1,int((right-start-1e-12)/bucket_size)))
         for column in range(first,last+1):
@@ -160,6 +176,7 @@ def render_occupancy(width,height,history,metric,now,seconds,columns=24,bands=12
     image=Image.new("RGB",(width,height),PANEL)
     draw=ImageDraw.Draw(image)
     matrix,scale=occupancy_bins(history,metric,now,seconds,columns,bands)
+    low,_=metric_bounds(history,metric,now,seconds)
     label=series_label(metric)
     units=metric_unit(metric)
     draw.text((16,12),f"TIME OCCUPANCY  ·  {label} ({units})",font=font(13,True),fill=TEXT)
@@ -177,7 +194,7 @@ def render_occupancy(width,height,history,metric,now,seconds,columns=24,bands=12
             if x2>=x1 and y2>=y1:
                 draw.rectangle((x1,y1,x2,y2),fill=intensity_color(t/interval))
     draw.text((left-9,top+4),f"{scale:g}",fill=MUTED,font=font(10),anchor="rm")
-    draw.text((left-9,bottom), "0",fill=MUTED,font=font(10),anchor="rm")
+    draw.text((left-9,bottom),f'{low:g}',fill=MUTED,font=font(10),anchor="rm")
     draw.text((left,bottom+13),f"-{round(seconds/60,1):g}m",fill=MUTED,font=font(10),anchor="lm")
     draw.text((right,bottom+13),"Now",fill=MUTED,font=font(10),anchor="rm")
     draw.text((left,height-16),"Duration in each range: ",fill=MUTED,font=font(10),anchor="lm")

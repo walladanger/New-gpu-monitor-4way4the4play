@@ -3,13 +3,13 @@ from __future__ import annotations
 
 import colorsys
 from collections import deque
-from tkinter import colorchooser
 import tkinter as tk
 
 from graph_scene import BG, PANEL, TEXT, MUTED, GRID, COLORS
 from chart_view import LINE_STYLES
-from system_graph import MODE_UNITS, available_series, render_system_graph, series_label
-from ui_resources import PhotoImage, BooleanVar, StringVar
+from system_graph import MODE_UNITS, available_series, render_system_graph, series_label,sort_series
+from ui_resources import PhotoImage
+from resource_menu import ResourceMenu,ColorMenu,option
 
 
 SERIES_MODES={
@@ -63,13 +63,14 @@ class SystemPanel(tk.Frame):
         self.selected=set()
         self._sensor_keys=()
         self._selection_initialized=set()
+        self._mode_selections={}
+        self._known_series={}
         self.style="Line"
         self.styles={}
         self.colors={}
         self.palette="Original"
         self.history=()
         self.photo=None
-        self._menu_vars=[]
         self._disposed=False
 
         heading=tk.Frame(self,bg=PANEL)
@@ -81,15 +82,11 @@ class SystemPanel(tk.Frame):
         options=dict(bg=GRID,fg=TEXT,activebackground="#36475b",
                      activeforeground=TEXT,relief="flat",cursor="hand2",
                      font=("Segoe UI",9),borderwidth=0,padx=8,pady=4)
-        self.appearance_menu=tk.Menu(self,tearoff=False,bg=PANEL,fg=TEXT,activebackground=GRID,
-                                     activeforeground=TEXT)
-        self.appearance_button=tk.Menubutton(buttons,text="◈ Style / color  ▾",
-                                              menu=self.appearance_menu,**options)
+        self.appearance_button=tk.Button(buttons,text="◈ Style / color  ▾",
+            command=lambda:ResourceMenu(self.appearance_button,"Graph appearance",self.appearance_options),**options)
         self.appearance_button.pack(side="right",padx=(4,0))
-        self.sensor_menu=tk.Menu(self,tearoff=False,bg=PANEL,fg=TEXT,activebackground=GRID,
-                                 activeforeground=TEXT)
-        self.sensor_button=tk.Menubutton(buttons,text="≡ Sensors  ▾",
-                                         menu=self.sensor_menu,**options)
+        self.sensor_button=tk.Button(buttons,text="≡ Sensors  ▾",
+            command=lambda:ResourceMenu(self.sensor_button,"Sensors",self.sensor_options),**options)
         self.sensor_button.pack(side="right")
         self.subtitle=tk.Label(self,text=MODE_TITLES[self.mode],bg=PANEL,fg=MUTED,
                                font=("Segoe UI",9),anchor="w")
@@ -102,14 +99,26 @@ class SystemPanel(tk.Frame):
         self.canvas.pack(fill="both",expand=True,padx=6,pady=(4,8))
         self.image_item=self.canvas.create_image(0,0,anchor="nw")
         self.canvas.bind("<Configure>",lambda _:self.controller.schedule_redraw())
-        self.make_sensor_menu()
-        self.make_appearance_menu()
 
     def set_selected(self,keys):
         self.selected={key for key in keys if key in self._sensor_keys or not self._sensor_keys}
-        self.make_sensor_menu()
-        self.make_appearance_menu()
         self.controller.schedule_redraw()
+
+    def preference_state(self):
+        return dict(mode=self.mode,selected=sorted(self.selected) if self.mode in self._selection_initialized else None,
+                    style=self.style,palette=self.palette,colors=dict(self.colors),styles=dict(self.styles))
+
+    def restore_preferences(self,state):
+        self.mode=state['mode']
+        self.style=state['style']
+        self.palette=state['palette']
+        self.colors=dict(state['colors'])
+        self.styles=dict(state['styles'])
+        if state['selected'] is not None:
+            self.selected=set(state['selected'])
+            self._selection_initialized.add(self.mode)
+        self._sensor_keys=()
+        self.subtitle.configure(text=MODE_TITLES[self.mode])
 
     def set_style(self,style):
         if style not in LINE_STYLES:
@@ -117,7 +126,6 @@ class SystemPanel(tk.Frame):
         self.style=style
         for key in self.selected:
             self.styles[key]=style
-        self.make_appearance_menu()
         self.controller.schedule_redraw()
 
     def set_palette(self,palette):
@@ -126,7 +134,6 @@ class SystemPanel(tk.Frame):
         self.palette=palette
         for index,key in enumerate(self._sensor_keys):
             self.colors[key]=series_color(key,index,palette)
-        self.make_appearance_menu()
         self.controller.schedule_redraw()
 
     def set_color(self,key,color):
@@ -137,44 +144,29 @@ class SystemPanel(tk.Frame):
         self.controller.schedule_redraw()
 
     def choose_color(self,key):
-        result=colorchooser.askcolor(color=self.colors.get(key,COLORS[0]),
-                                    title="Color for "+series_label(key),parent=self)
-        if result and result[1]:
-            self.set_color(key,result[1])
+        self.after_idle(lambda:ColorMenu(self.appearance_button,self.colors.get(key,COLORS[0]),lambda color:self.set_color(key,color)))
 
     def change_mode(self,mode):
         if mode not in SERIES_MODES[self.group]:
             raise ValueError("Unknown sensor mode")
+        self._mode_selections[self.mode]=set(self.selected)
         self.mode=mode
         self.subtitle.configure(text=MODE_TITLES[mode])
-        self.selected=set()
+        self.selected=set(self._mode_selections.get(mode,()))
+        if mode in self._mode_selections:
+            self._selection_initialized.add(mode)
+        else:
+            self._selection_initialized.discard(mode)
         self._sensor_keys=()
         self.accept(self.history)
 
-    def make_sensor_menu(self):
-        menu=self.sensor_menu
-        menu.delete(0,"end")
-        self._menu_vars=[]
-        for mode in SERIES_MODES[self.group]:
-            var=BooleanVar(master=self,value=self.mode==mode)
-            self._menu_vars.append(var)
-            menu.add_radiobutton(label=MODE_TITLES[mode],variable=var,value=True,
-                                 command=lambda mode=mode:self.change_mode(mode))
-        menu.add_separator()
-        if not self._sensor_keys:
-            menu.add_command(label="No sensors detected",state="disabled")
-            return
-        for name,count in (("Total / first",1),("First 4",4),("First 8",8),("All",None)):
-            menu.add_command(label="Select "+name,
-                             command=lambda count=count:self.select_preset(count))
-        menu.add_command(label="Clear selection",command=lambda:self.set_selected(()))
-        menu.add_separator()
-        for index,key in enumerate(self._sensor_keys):
-            flag=BooleanVar(master=self,value=key in self.selected)
-            self._menu_vars.append(flag)
-            menu.add_checkbutton(label=series_label(key),variable=flag,
-                                 command=lambda k=key,v=flag:self.toggle_sensor(k,v.get()),
-                                 columnbreak=index>0 and index%18==0)
+    def sensor_options(self):
+        rows=[option(MODE_TITLES[mode],lambda m=mode:self.change_mode(m),mode==self.mode) for mode in SERIES_MODES[self.group]]
+        rows.extend(option("Select "+name,lambda c=count:self.select_preset(c)) for name,count in
+                    (("Total / first",1),("First 4",4),("First 8",8),("All",None)))
+        rows.append(option("Clear selection",lambda:self.set_selected(())))
+        rows.extend(option(series_label(key),lambda k=key:self.toggle_sensor(k,k not in self.selected),key in self.selected) for key in self._sensor_keys)
+        return rows
 
     def toggle_sensor(self,key,active):
         updated=set(self.selected)
@@ -195,45 +187,26 @@ class SystemPanel(tk.Frame):
             chosen=self._sensor_keys[:count]
         self.set_selected(chosen)
 
-    def make_appearance_menu(self):
-        menu=self.appearance_menu
-        menu.delete(0,"end")
-        mode_var=StringVar(master=self,value=self.style)
-        self._menu_vars.append(mode_var)
-        for style in LINE_STYLES:
-            menu.add_radiobutton(label=style,variable=mode_var,value=style,
-                                 command=lambda s=style:self.set_style(s))
-        menu.add_separator()
-        palette=tk.Menu(menu,tearoff=False,bg=PANEL,fg=TEXT,activebackground=GRID,
-                        activeforeground=TEXT)
-        palette_var=StringVar(master=self,value=self.palette)
-        self._menu_vars.append(palette_var)
-        for name in ("Original","Spectrum"):
-            palette.add_radiobutton(label=name,variable=palette_var,value=name,
-                                    command=lambda p=name:self.set_palette(p))
-        menu.add_cascade(label="Color scheme",menu=palette)
-        colors=tk.Menu(menu,tearoff=False,bg=PANEL,fg=TEXT,activebackground=GRID,
-                       activeforeground=TEXT)
-        for key in self._sensor_keys:
-            colors.add_command(label=series_label(key),command=lambda key=key:self.choose_color(key))
-        if not self._sensor_keys:
-            colors.add_command(label="No sensor",state="disabled")
-        menu.add_cascade(label="Individual trace color…",menu=colors)
+    def appearance_options(self):
+        rows=[option(style,lambda s=style:self.set_style(s),self.style==style) for style in LINE_STYLES]
+        rows.extend(option(name,lambda p=name:self.set_palette(p),name==self.palette) for name in ("Original","Spectrum"))
+        rows.append(option("Individual trace color…",submenu=lambda:[option(series_label(k),lambda key=k:self.choose_color(key)) for k in self._sensor_keys]))
+        return rows
 
     def accept(self,history):
         self.history=tuple(history)
-        keys=available_series(self.mode,self.history)
+        previous=self._known_series.get(self.mode)
+        discovered=available_series(self.mode,self.history if previous is None else self.history[-2:])
+        keys=sort_series(set(previous or ())|set(discovered))
+        self._known_series[self.mode]=keys
         if keys!=self._sensor_keys:
             self._sensor_keys=keys
             for i,key in enumerate(keys):
                 self.colors.setdefault(key,series_color(key,i,self.palette))
+                self.styles.setdefault(key,self.style)
             if self.mode not in self._selection_initialized:
                 self.selected=initial_selection(self.mode,keys)
                 self._selection_initialized.add(self.mode)
-            else:
-                self.selected.intersection_update(keys)
-            self.make_sensor_menu()
-            self.make_appearance_menu()
         latest=self.history[-1].values if self.history else {}
         labels=[]
         for key in keys:
@@ -249,6 +222,8 @@ class SystemPanel(tk.Frame):
 
     def render(self,history,seconds,right):
         self.accept(history)
+        if self.history and right-self.history[-1].stamp>4:
+            self.legends.configure(text='Waiting for fresh sensor readings; plotted history is retained')
         width,height=self.canvas.winfo_width(),self.canvas.winfo_height()
         if width<100 or height<100:
             return
@@ -259,8 +234,9 @@ class SystemPanel(tk.Frame):
             background=ambient.surface(width,height,PANEL,self.canvas)
         args=(self.mode,width,height,self.history,selected,self.colors.copy(),
               self.styles.copy(),right,seconds)
-        key=(self.mode,selected,tuple((k,self.colors.get(k),self.styles.get(k))
-                                       for k in selected),len(self.history),
+        presentation=(self.mode,selected,tuple((k,self.colors.get(k),self.styles.get(k))
+                                              for k in selected),width,height)
+        key=(presentation,len(self.history),
              self.history[-1].stamp if self.history else None,
              width,height,round(right,1))
         def apply(picture):
@@ -270,7 +246,7 @@ class SystemPanel(tk.Frame):
             self.canvas.backdrop_image=picture
             self.canvas.itemconfigure(self.image_item,image=self.photo)
         if self.controller.async_render:
-            self.controller.queue_frame(self,key,key,args,dict(background=background),
+            self.controller.queue_frame(self,key,presentation,args,dict(background=background),
                                         apply,draw=render_system_graph)
         else:
             apply(render_system_graph(*args,background=background))

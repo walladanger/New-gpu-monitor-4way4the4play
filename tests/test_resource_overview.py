@@ -1,6 +1,8 @@
 """Compact gauges and recorded-duration heatmap regression tests."""
 import time
 import unittest
+import threading
+from unittest.mock import patch
 
 from system_data import SystemSnapshot
 from resource_analytics import (occupancy_bins, intensity_color, render_occupancy,
@@ -12,6 +14,37 @@ def sample(stamp, **values):
 
 
 class ResourceAnalyticsTests(unittest.TestCase):
+    def test_dials_and_heatmap_draw_off_the_input_thread(self):
+        from dashboard import Dashboard
+        import resource_overview
+        app=Dashboard(collect=False,async_render=True)
+        owner=threading.get_ident()
+        called=[]
+        def checked_draw(original,kind):
+            def draw(*args,**kwargs):
+                self.assertNotEqual(threading.get_ident(),owner,
+                    'Resource painting must not block the Tk input thread')
+                called.append(kind)
+                return original(*args,**kwargs)
+            return draw
+        try:
+            now=time.monotonic()
+            app.accept_system(sample(now,**{'cpu:total':35,'cpu:clock':4.2,
+                                           'ram:used_pct':40,'disk:total:read':12}))
+            app.resource_heatmap.set_expanded(True)
+            app.update();app.layout_graphs();app.update()
+            # Invalidate cached dials so this drives the actual drawing path.
+            for gauge in app.resource_overview.gauges:
+                gauge._last_frame_key=None
+            with patch('resource_overview.render_gauge',side_effect=checked_draw(resource_overview.render_gauge,'dial')), \
+                 patch('resource_overview.render_occupancy',side_effect=checked_draw(resource_overview.render_occupancy,'heatmap')):
+                app.redraw()
+                app.wait_for_renders()
+            self.assertIn('dial',called)
+            self.assertIn('heatmap',called)
+        finally:
+            app.close()
+
     def test_occupancy_counts_elapsed_recorded_seconds_not_the_load_magnitude(self):
         history=(sample(100, **{"cpu:total": 30,"cpu:clock":4.2}),
                  sample(101, **{"cpu:total": 30,"cpu:clock":4.2}),

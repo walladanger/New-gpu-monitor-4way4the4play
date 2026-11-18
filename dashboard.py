@@ -28,6 +28,7 @@ from render_pipeline import RenderPipeline
 from replay import ReplayTrack
 from system_data import SystemCollector, SystemSnapshot
 from system_view import SystemPanel
+from system_graph import series_label
 from resource_overview import ResourceOverview, OccupancyHeatmapPanel
 from ui_resources import PhotoImage,BooleanVar,drain_resources
 from chart_view import normalize_color, LINE_STYLES
@@ -388,6 +389,7 @@ class DetachedWindow(tk.Toplevel):
         self.controller.detached.remove(self)
         if hasattr(self,"chrome"):
             self.chrome.detach()
+        self.ambient.close()
         self.destroy()
 
 
@@ -1001,10 +1003,10 @@ class Dashboard(tk.Tk):
         chart.refresh()
         self.schedule_redraw()
 
-    def queue_frame(self,owner,key,presentation,args,kwargs,apply,draw=render_graph):
+    def queue_frame(self,owner,key,presentation,args,kwargs,apply,draw=None):
         if self.render_pipeline is None:
             self.render_pipeline=RenderPipeline()
-        self.render_pipeline.request(owner,key,presentation,draw,args,kwargs,apply)
+        self.render_pipeline.request(owner,key,presentation,draw or render_graph,args,kwargs,apply)
         if self.render_poll_job is None:
             self.render_poll_job=self.after(16,self.poll_renders)
 
@@ -1088,6 +1090,24 @@ class Dashboard(tk.Tk):
                 self.global_styles.update(self.charts[0].line_styles)
                 self.global_opacity.update(self.charts[0].series_opacity)
             self.sync_global_settings()
+        resources=self.saved_preferences.get('resources',{})
+        if resources:
+            for gauge,spec in zip(self.resource_overview.gauges,resources['gauges']):
+                gauge.spec.metric=spec['metric']
+                gauge.spec.style=spec['style']
+                gauge.spec.color=spec['color']
+            self.resource_overview.set_collapsed(resources['collapsed'])
+            for key,panels in (('panels',self.system_panels),('live_panels',self.live_system_panels)):
+                for group,state in resources.get(key,{}).items():
+                    panels[group].restore_preferences(state)
+            for group,expanded in resources.get('details',{}).items():
+                if expanded!=self.detail_expanded[group]:
+                    self.toggle_live_detail(group)
+            heatmap=resources['heatmap']
+            self.resource_heatmap.metric=heatmap['metric']
+            self.resource_heatmap.sensor_button.configure(text=series_label(heatmap['metric'])+'  ▾')
+            self.resource_heatmap.set_window(heatmap['window'])
+            self.resource_heatmap.set_expanded(heatmap['expanded'])
 
     def chart_preferences(self,chart):
         colors={uid:chart.series_color(uid) for uid in self.devices}
@@ -1101,6 +1121,11 @@ class Dashboard(tk.Tk):
                'global_gpu_settings':self.global_gpu_settings.get(),'topmost':self.topmost.get(),'gpu':getattr(self,'pending_gpu',None) or self.selected_uuid(self.gpu_choice),
                'history':self.window_choice.get(),'charts':{c.key:self.chart_preferences(c) for c in self.charts}},'detached':[]}
         state['gpu_settings']={'colors':self.global_colors,'styles':self.global_styles,'opacity':self.global_opacity}
+        state['resources']=dict(gauges=[dict(metric=g.spec.metric,style=g.spec.style,color=g.spec.color) for g in self.resource_overview.gauges],
+            collapsed=self.resource_overview.collapsed,details=dict(self.detail_expanded),
+            panels={k:p.preference_state() for k,p in self.system_panels.items()},
+            live_panels={k:p.preference_state() for k,p in self.live_system_panels.items()},
+            heatmap=dict(metric=self.resource_heatmap.metric,window=self.resource_heatmap.range_name,expanded=self.resource_heatmap.expanded))
         for window in self.detached:
             item=self.chart_preferences(window.chart)
             item.update(metric=window.chart.key,bounds=list(window.chrome.preference_bounds()),maximized=window.chrome.is_maximized(),
@@ -1211,7 +1236,7 @@ class Dashboard(tk.Tk):
         self.redraw_job = None
         if time.monotonic()-self._last_ambient > 1:
             for root in [self]+self.detached:
-                root.ambient.paint()
+                root.ambient.schedule_paint()
             self._last_ambient=time.monotonic()
         if self.active_tab == "replay":
             if self.winfo_viewable():
@@ -1221,14 +1246,15 @@ class Dashboard(tk.Tk):
         elif self.active_tab == "system":
             if self.winfo_viewable():
                 history=tuple(self.system_history)
+                now=self.frozen_at if self.paused else time.monotonic()
                 for panel in self.system_panels.values():
-                    panel.render(history,300,time.monotonic())
+                    panel.render(history,300,now)
         elif self.winfo_viewable():
             context = self.context(self.gpu_choice, self.window_choice)
             for chart in self.charts:
                 chart.render(*context)
             system_history=tuple(self.system_history)
-            now=time.monotonic()
+            now=context[5]
             self.resource_overview.render(system_history,now)
             for kind,panel in self.live_system_panels.items():
                 if self.detail_expanded[kind] and panel.winfo_viewable():
@@ -1240,7 +1266,7 @@ class Dashboard(tk.Tk):
                 window.chart.render(*self.context(window.gpu_choice, window.window_choice))
         for root in [self]+self.detached:
             if getattr(root, "glass_popup", None):
-                root.glass_popup.render()
+                root.glass_popup.render(refresh_background=True)
 
     def open_window(self, chart):
         window = DetachedWindow(self, chart)
@@ -1358,13 +1384,13 @@ class Dashboard(tk.Tk):
         stale = self.latest_at is not None and time.monotonic()-self.latest_at >= 3
         system_stale = self.system_latest_at is not None and time.monotonic()-self.system_latest_at > 4
         if self.active_tab == "system":
-            state = "SYSTEM · NO DATA" if self.system_latest_at is None else ("SYSTEM · STALE" if system_stale else "SYSTEM · LIVE")
+            state = 'SYSTEM · PAUSED' if self.paused else ("SYSTEM · NO DATA" if self.system_latest_at is None else ("SYSTEM · STALE" if system_stale else "SYSTEM · LIVE"))
         else:
             state = ("REPLAY" if self.replay_track and self.replay_track.records else "REPLAY · NO DATA") if self.active_tab == "replay" else (
                 "PAUSED" if self.paused else "NO DATA" if self.error else "RECONNECTING" if stale else "LIVE" if self.latest_at else "CONNECTING")
         self.live.configure(text=state, fg=COLORS[2] if self.active_tab in ("replay","system") or self.paused or self.error or stale else COLORS[0])
         if self.active_tab == "system":
-            status = ("System readings unavailable · " + (self.system_error or "Waiting for system sensors.")
+            status = 'System graphs are paused. Resume from Live to continue.' if self.paused else ("System readings unavailable · " + (self.system_error or "Waiting for system sensors.")
                       if self.system_latest_at is None else
                       ("System readings are stale; waiting for refreshed samples." if system_stale else
                       "Live CPU, RAM and disk readings · physical disk I/O and volume capacity are distinct."))
@@ -1398,7 +1424,7 @@ class Dashboard(tk.Tk):
                     except queue.Empty:
                         break
                     self.system_error = system_error
-                    if system_snapshot is not None:
+                    if system_snapshot is not None and not self.paused:
                         self.accept_system(system_snapshot)
             while True:
                 try:
@@ -1452,6 +1478,7 @@ class Dashboard(tk.Tk):
             self.after_cancel(self.replay_job)
             self.replay_job = None
         self._closed = True
+        self.ambient.close()
         logging.getLogger('gpu_live_graphs').info('Dashboard closing ui_stalls=%s max_ui_delay=%.3fs',self.ui_stalls,self.max_ui_delay)
         if self.render_pipeline:
             self.render_pipeline.close()
@@ -1469,6 +1496,7 @@ class Dashboard(tk.Tk):
             self.store.close()
         for window in self.detached:
             window._closed = True
+            window.ambient.close()
             if hasattr(window,"chrome"):
                 window.chrome.detach()
         if hasattr(self,"chrome"):
