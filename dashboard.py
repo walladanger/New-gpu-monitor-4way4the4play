@@ -28,6 +28,7 @@ from render_pipeline import RenderPipeline
 from replay import ReplayTrack
 from system_data import SystemCollector, SystemSnapshot
 from system_view import SystemPanel
+from resource_overview import ResourceOverview, OccupancyHeatmapPanel
 from ui_resources import PhotoImage,BooleanVar,drain_resources
 from chart_view import normalize_color, LINE_STYLES
 
@@ -516,6 +517,7 @@ class Dashboard(tk.Tk):
         self.grid_frame = tk.Frame(self.viewport, bg=BG)
         self.grid_item = self.viewport.create_window(0, 0, window=self.grid_frame, anchor="nw")
         self.charts = [Chart(self.grid_frame, self, *metric) for metric in METRICS]
+        self.setup_live_resource_rack()
         self.viewport.bind("<Configure>", self.schedule_layout)
         self.viewport.bind("<MouseWheel>", self.scroll_graphs)
         self.setup_replay_tab()
@@ -531,6 +533,52 @@ class Dashboard(tk.Tk):
             self.tick_job = self.after(100, self.tick)
         self.after(250,self.heartbeat)
         logging.getLogger('gpu_live_graphs').info('phase=dashboard_ready async_render=%s',self.async_render)
+
+    def setup_live_resource_rack(self):
+        """Resource widgets live below four GPU graphs, not inside their renderers."""
+        self.resource_overview=ResourceOverview(self.grid_frame,self)
+        self.resource_details=tk.Frame(self.grid_frame,bg=BG)
+        self.detail_expanded={"cpu":True,"ram":False,"disk":False}
+        self.live_system_panels={}
+        self.detail_buttons={}
+        for kind in ("cpu","ram","disk"):
+            card=tk.Frame(self.resource_details,bg=PANEL,highlightbackground=GRID,
+                          highlightthickness=1)
+            card.pack(fill="x",expand=True,padx=3,pady=4)
+            header=tk.Frame(card,bg=PANEL)
+            header.pack(fill="x",padx=12,pady=8)
+            action=button(header,"",lambda kind=kind:self.toggle_live_detail(kind))
+            action.configure(anchor="w",font=("Segoe UI",10,"bold"))
+            action.pack(fill="x",expand=True)
+            self.detail_buttons[kind]=action
+            panel=SystemPanel(card,self,kind)
+            self.live_system_panels[kind]=panel
+            if self.detail_expanded[kind]:
+                panel.pack(fill="both",expand=True,padx=7,pady=(0,8))
+            self._set_detail_button(kind)
+        self.resource_heatmap=OccupancyHeatmapPanel(self.grid_frame,self)
+
+    def _set_detail_button(self,kind):
+        labels={"cpu":"CPU · logical processors and clock",
+                "ram":"SYSTEM RAM · utilization and capacity",
+                "disk":"STORAGE · read/write and logical volumes"}
+        expanded=self.detail_expanded[kind]
+        self.detail_buttons[kind].configure(
+            text=("▾  " if expanded else "▸  ")+labels[kind]+
+            ("   ·  Hide graph" if expanded else "   ·  Expand graph"))
+
+    def toggle_live_detail(self,kind):
+        if kind not in self.live_system_panels:
+            return
+        self.detail_expanded[kind]=not self.detail_expanded[kind]
+        panel=self.live_system_panels[kind]
+        if self.detail_expanded[kind]:
+            panel.pack(fill="both",expand=True,padx=7,pady=(0,8))
+        else:
+            panel.pack_forget()
+        self._set_detail_button(kind)
+        self.schedule_layout()
+        self.schedule_redraw()
 
     def setup_replay_tab(self):
         """A separate, extensible view; source data and the live view stay isolated."""
@@ -1161,6 +1209,13 @@ class Dashboard(tk.Tk):
             context = self.context(self.gpu_choice, self.window_choice)
             for chart in self.charts:
                 chart.render(*context)
+            system_history=tuple(self.system_history)
+            now=time.monotonic()
+            self.resource_overview.render(system_history,now)
+            for kind,panel in self.live_system_panels.items():
+                if self.detail_expanded[kind] and panel.winfo_viewable():
+                    panel.render(system_history,300,now)
+            self.resource_heatmap.render(system_history,now)
         for window in self.detached:
             window.gpu_choice.configure(values=self.gpu_choice.cget("values"))
             if window.winfo_viewable():
@@ -1389,6 +1444,8 @@ class Dashboard(tk.Tk):
         if self.system_collector:
             self.system_collector.stop.set()
         for panel in getattr(self,"system_panels",{}).values():
+            panel.close()
+        for panel in getattr(self,"live_system_panels",{}).values():
             panel.close()
         if self.store:
             self.store.close()
