@@ -525,6 +525,10 @@ class Dashboard(tk.Tk):
         self.style_tab_buttons()
         self.ambient = AmbientTheme(self)
         self.deiconify()
+        # Establish the GPU + resource rack immediately, so the collapsed
+        # numeric gauges remain mapped before the first scheduled resize.
+        self.update_idletasks()
+        self.layout_graphs()
         if self.saved_preferences:
             self.restore_preferences()
         if self.preferences:
