@@ -501,6 +501,252 @@ class Dashboard(tk.Tk):
         self.after(250,self.heartbeat)
         logging.getLogger('gpu_live_graphs').info('phase=dashboard_ready async_render=%s',self.async_render)
 
+    def setup_replay_tab(self):
+        """A separate, extensible view; source data and the live view stay isolated."""
+        bar = tk.Frame(self.replay_page, bg=BG)
+        bar.pack(fill="x", padx=24, pady=(12, 7))
+        button(bar, "Load last recording", self.load_replay).pack(side="left", padx=(0, 7))
+        self.replay_restart_button = button(bar, "Restart", self.replay_restart)
+        self.replay_restart_button.pack(side="left", padx=4)
+        self.replay_play_button = button(bar, "Play", self.replay_play)
+        self.replay_play_button.pack(side="left", padx=4)
+        self.replay_pause_button = button(bar, "Pause", self.replay_pause)
+        self.replay_pause_button.pack(side="left", padx=4)
+        button(bar, "End", self.replay_end).pack(side="left", padx=4)
+        tk.Label(bar, text="Speed", bg=BG, fg=MUTED, font=("Segoe UI", 10)).pack(side="left", padx=(12, 4))
+        self.replay_speed = DarkSelect(bar, values=["0.25×", "0.5×", "1×", "2×", "4×"], width=7)
+        self.replay_speed.set("1×")
+        self.replay_speed.pack(side="left")
+        self.replay_speed.bind("<<ComboboxSelected>>", self.replay_speed_changed)
+        seek = tk.Frame(self.replay_page, bg=BG)
+        seek.pack(fill="x", padx=24, pady=(0, 6))
+        self.replay_slider = tk.Scale(
+            seek, from_=0, to=1000, orient="horizontal", showvalue=0, resolution=1,
+            bg=BG, fg=TEXT, troughcolor=GRID, activebackground=COLORS[0],
+            highlightthickness=0, borderwidth=0, length=400,
+            command=self.replay_seek)
+        self.replay_slider.configure(state="disabled")
+        self.replay_slider.pack(side="left", fill="x", expand=True)
+        self.replay_status = tk.Label(
+            self.replay_page,
+            text="No recording loaded · Replay uses saved samples, never simulated intermediate values.",
+            bg=BG, fg=MUTED, font=("Segoe UI", 9), anchor="w", justify="left",
+            wraplength=1000)
+        self.replay_status.pack(fill="x", padx=24, pady=(0, 7))
+        filters = tk.Frame(self.replay_page, bg=BG)
+        filters.pack(fill="x", padx=24, pady=(0, 7))
+        tk.Label(filters, text="Recorded GPU", bg=BG, fg=MUTED).pack(side="left", padx=(0, 5))
+        self.replay_gpu_choice = DarkSelect(filters, values=["All GPUs"], width=28)
+        self.replay_gpu_choice.set("All GPUs")
+        self.replay_gpu_choice.pack(side="left")
+        self.replay_gpu_choice.bind("<<ComboboxSelected>>", lambda _: self.schedule_redraw())
+        tk.Label(filters, text="Graph range", bg=BG, fg=MUTED).pack(side="left", padx=(18, 5))
+        self.replay_window_choice = DarkSelect(filters, values=list(WINDOWS), width=11)
+        self.replay_window_choice.set("1 minute")
+        self.replay_window_choice.pack(side="left")
+        self.replay_window_choice.bind("<<ComboboxSelected>>", lambda _: self.schedule_redraw())
+        tk.Label(
+            filters, text="Values show recorded measurements only · playback stops at the final sample",
+            bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(side="left", padx=(18, 0))
+
+        body = tk.Frame(self.replay_page, bg=BG)
+        body.pack(fill="both", expand=True, padx=(18, 8))
+        self.replay_viewport = tk.Canvas(body, bg=BG, highlightthickness=0)
+        self.replay_scrollbar = SlimScrollbar(body, "vertical", self.replay_viewport.yview)
+        self.replay_viewport.pack(side="left", fill="both", expand=True)
+        self.replay_viewport.configure(yscrollcommand=self.replay_scrollbar.set, yscrollincrement=24)
+        self.replay_grid = tk.Frame(self.replay_viewport, bg=BG)
+        self.replay_grid_item = self.replay_viewport.create_window(
+            0, 0, window=self.replay_grid, anchor="nw")
+        self.replay_charts = [Chart(self.replay_grid, self, *metric, detachable=False) for metric in METRICS]
+        self.replay_columns = None
+        self.replay_viewport.bind("<Configure>", lambda _: self.layout_replay_graphs())
+        self.replay_viewport.bind(
+            "<MouseWheel>",
+            lambda event: (self.replay_viewport.yview_scroll(
+                -3 if event.delta > 0 else 3, "units"), "break")[1])
+
+    def style_tab_buttons(self):
+        for name, control in (("live", self.live_tab_button), ("replay", self.replay_tab_button)):
+            selected = self.active_tab == name
+            control.configure(
+                bg="#253647" if selected else BG, fg=TEXT if selected else MUTED,
+                activebackground=GRID, activeforeground=TEXT,
+                font=("Segoe UI", 10, "bold" if selected else "normal"))
+
+    def show_live(self):
+        if self.active_tab == "live":
+            return
+        self.replay_pause()
+        self.replay_page.pack_forget()
+        self.live_page.pack(fill="both", expand=True)
+        self.active_tab = "live"
+        self.style_tab_buttons()
+        self.layout_graphs()
+        self.refresh_status()
+        self.schedule_redraw()
+
+    def show_replay(self):
+        if self.active_tab == "replay":
+            return
+        self.live_page.pack_forget()
+        self.replay_page.pack(fill="both", expand=True)
+        self.active_tab = "replay"
+        self.style_tab_buttons()
+        self.layout_replay_graphs()
+        if self.replay_track is None and not self.replay_loading:
+            self.load_replay()
+        self.refresh_status()
+        self.schedule_redraw()
+
+    def layout_replay_graphs(self):
+        width, height = self.replay_viewport.winfo_width(), self.replay_viewport.winfo_height()
+        if width < 100 or height < 100:
+            return
+        columns = panel_columns(width)
+        rows = 4 // columns
+        if columns != self.replay_columns:
+            for i in range(4):
+                self.replay_grid.rowconfigure(i, weight=0, minsize=0, uniform="")
+            for i in range(2):
+                self.replay_grid.columnconfigure(i, weight=0, minsize=0, uniform="")
+            for i in range(columns):
+                self.replay_grid.columnconfigure(i, weight=1, uniform="panels")
+            for i in range(rows):
+                self.replay_grid.rowconfigure(i, weight=1, uniform="panels")
+            for i, chart in enumerate(self.replay_charts):
+                chart.grid(row=i//columns, column=i%columns,
+                           sticky="nsew", padx=6, pady=6)
+            self.replay_columns = columns
+        content_height = max(height, rows * (300 if columns == 2 else 340))
+        self.replay_viewport.itemconfigure(
+            self.replay_grid_item, width=width, height=content_height)
+        self.replay_viewport.configure(scrollregion=(0, 0, width, content_height))
+        if content_height > height:
+            self.replay_scrollbar.pack(side="right", fill="y")
+        else:
+            self.replay_scrollbar.pack_forget()
+        self.replay_status.configure(wraplength=max(350, self.winfo_width() - 48))
+        self.schedule_redraw()
+
+    def load_replay(self):
+        self.replay_pause()
+        self.replay_loading = True
+        self.replay_status.configure(text="Loading newest retained recording from local history…")
+        if self.store:
+            if not self.store.replay_latest():
+                self.replay_loading = False
+                self.replay_status.configure(
+                    text="History writer is busy. Select Load last recording to retry.")
+        else:
+            self.replay_loading = False
+            self.replay_track = ReplayTrack(tuple(self.history), "in-memory")
+            self.configure_replay_source()
+
+    def configure_replay_source(self, error=None):
+        track = self.replay_track
+        labels = gpu_labels(track.devices) if track else {}
+        self.replay_gpu_choice.configure(values=["All GPUs"] + list(labels.values()))
+        self.replay_gpu_choice.set("All GPUs")
+        self.replay_slider.configure(state="normal" if track and track.records else "disabled")
+        self.update_replay_status(error)
+        self.schedule_redraw()
+
+    def update_replay_status(self, error=None):
+        track = self.replay_track
+        if error:
+            message = "Could not load recording: " + str(error)
+        elif self.replay_loading:
+            message = "Loading newest retained recording from local history…"
+        elif not track or not track.records:
+            message = "No saved recording found in retained history."
+        else:
+            start = datetime.fromtimestamp(track.start).strftime("%b %d, %H:%M:%S")
+            finish = datetime.fromtimestamp(track.end).strftime("%b %d, %H:%M:%S")
+            current = datetime.fromtimestamp(track.position).strftime("%b %d, %H:%M:%S")
+            source = "In-memory preview" if track.session == "in-memory" else "Recorded session"
+            state = "PLAYING" if track.playing else "END" if track.fraction == 1 else "READY"
+            message = (f"{source} · {start} → {finish} · "
+                       f"{current} · sample {track.index+1}/{len(track.records)} · {state}")
+        self.replay_status.configure(text=message)
+        if track and track.records:
+            self._replay_slider_updating = True
+            try:
+                self.replay_slider.set(round(track.fraction * 1000))
+            finally:
+                self._replay_slider_updating = False
+        if self.active_tab == "replay":
+            self.refresh_status()
+
+    def replay_context(self):
+        track = self.replay_track
+        seconds = WINDOWS.get(self.replay_window_choice.get(), 60)
+        if not track or not track.records:
+            return (), {}, {}, None, seconds, time.monotonic(), frozenset()
+        devices = dict(track.devices)
+        current = track.current()
+        for reading in current.readings:
+            devices[reading.uuid] = reading
+        ids = list(devices)
+        selected_index = self.replay_gpu_choice.current()
+        selected = ids[selected_index-1] if 0 < selected_index <= len(ids) else None
+        colors = {uid: self.colors.get(uid, COLORS[i % len(COLORS)])
+                  for i, uid in enumerate(devices)}
+        return (track.history(seconds), devices, colors, selected,
+                seconds, track.stamp, track.available())
+
+    def replay_seek(self, value):
+        if self._replay_slider_updating or not self.replay_track or not self.replay_track.records:
+            return
+        self.replay_track.seek(float(value) / 1000)
+        self.update_replay_status()
+        self.schedule_redraw()
+
+    def replay_speed_changed(self, _=None):
+        if self.replay_track:
+            self.replay_track.speed = float(self.replay_speed.get().rstrip("×"))
+
+    def replay_play(self):
+        if not self.replay_track or not self.replay_track.records:
+            self.load_replay()
+            return
+        self.replay_speed_changed()
+        self.replay_track.play(time.monotonic())
+        self.update_replay_status()
+        if self.replay_job is None and self.replay_track.playing:
+            self.replay_job = self.after(125, self.replay_tick)
+
+    def replay_pause(self):
+        if self.replay_track:
+            self.replay_track.pause()
+        if self.replay_job is not None:
+            self.after_cancel(self.replay_job)
+            self.replay_job = None
+        if hasattr(self, "replay_status"):
+            self.update_replay_status()
+
+    def replay_restart(self):
+        if self.replay_track and self.replay_track.records:
+            self.replay_track.seek(0)
+            self.update_replay_status()
+            self.schedule_redraw()
+
+    def replay_end(self):
+        if self.replay_track and self.replay_track.records:
+            self.replay_track.seek(1)
+            self.update_replay_status()
+            self.schedule_redraw()
+
+    def replay_tick(self):
+        self.replay_job = None
+        if self._closed or self.active_tab != "replay" or not self.replay_track:
+            return
+        if self.replay_track.advance(time.monotonic()):
+            self.update_replay_status()
+            self.schedule_redraw()
+        if self.replay_track.playing:
+            self.replay_job = self.after(125, self.replay_tick)
+
     def heartbeat(self):
         drain_resources()
         from diagnostics import pulse
