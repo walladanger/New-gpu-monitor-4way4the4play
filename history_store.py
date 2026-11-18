@@ -78,11 +78,18 @@ class HistoryStore:
             raise RuntimeError('History writer is busy. Try again shortly.') from error
 
     def replay_latest(self):
-        """Queue a consistent snapshot of the most recent retained session."""
+        """Choose the last completed recording, falling back to the current one."""
+        return self._queue_replay(current=False)
+
+    def replay_current(self):
+        """Freeze a read-only snapshot of the currently recording session."""
+        return self._queue_replay(current=True)
+
+    def _queue_replay(self, current):
         if self.closed:
             return False
         try:
-            self.tasks.put_nowait(('replay',))
+            self.tasks.put_nowait(('replay', current))
             return True
         except queue.Full:
             self.error = 'History is busy; replay could not be loaded yet.'
@@ -156,13 +163,24 @@ class HistoryStore:
                 logging.getLogger('gpu_live_graphs').warning('Skipped an invalid archived sample')
         self.messages.put(('loaded',records))
 
-    def _load_replay(self,connection):
+    def _load_replay(self,connection,current=False):
         # Read on the history worker; the Tk thread must never scan SQLite.
         anchor=(time.monotonic(),time.time())
         cutoff=anchor[1]-self.retention
-        row=connection.execute(
-            'SELECT session FROM samples WHERE wall>=? AND wall<=? ORDER BY wall DESC,id DESC LIMIT 1',
-            (cutoff,anchor[1]+1)).fetchone()
+        if current:
+            row=connection.execute(
+                'SELECT session FROM samples WHERE session=? AND wall>=? AND wall<=? ORDER BY wall DESC,id DESC LIMIT 1',
+                (self.session,cutoff,anchor[1]+1)).fetchone()
+        else:
+            row=connection.execute(
+                'SELECT session FROM samples WHERE session<>? AND wall>=? AND wall<=? ORDER BY wall DESC,id DESC LIMIT 1',
+                (self.session,cutoff,anchor[1]+1)).fetchone()
+            if row is None:
+                # First launch: there is no completed run, so offer a snapshot
+                # of the active session rather than silently returning nothing.
+                row=connection.execute(
+                    'SELECT session FROM samples WHERE wall>=? AND wall<=? ORDER BY wall DESC,id DESC LIMIT 1',
+                    (cutoff,anchor[1]+1)).fetchone()
         if row is None:
             self.messages.put(('replay_loaded',{'session':None,'records':[]}))
             return
@@ -262,7 +280,7 @@ class HistoryStore:
                         elif task[0]=='export':
                             self._export(connection,*task[1:])
                         elif task[0]=='replay':
-                            self._load_replay(connection)
+                            self._load_replay(connection,task[1])
                     elif task[0]=='replay':
                         self.messages.put(('replay_loaded',{'session':None,'records':[],
                             'error':self.error or 'History database is unavailable'}))
