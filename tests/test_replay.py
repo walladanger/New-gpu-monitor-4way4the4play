@@ -75,6 +75,7 @@ class ReplayArchiveTests(unittest.TestCase):
             now = time.time()
             first = HistoryStore(path)
             self.assertTrue(first.ready.wait(5))
+            first_session = first.session
             self.assertTrue(first.append(snapshot(now-5, 10)))
             self.assertTrue(first.flush())
             first.close()
@@ -84,23 +85,30 @@ class ReplayArchiveTests(unittest.TestCase):
                 self.assertTrue(second.ready.wait(5))
                 second.append(snapshot(now-2, 20))
                 second.append(snapshot(now-1, 30, missing=True))
+                def next_replay_result():
+                    deadline = time.monotonic() + 5
+                    while time.monotonic() < deadline:
+                        while not second.messages.empty():
+                            kind, data = second.messages.get_nowait()
+                            if kind == "replay_loaded":
+                                return data
+                        time.sleep(.01)
+                    self.fail("Replay history worker did not reply")
+
+                # "Last recording" must prefer the completed prior session,
+                # not silently show the currently running partial session.
                 self.assertTrue(second.replay_latest())
-                deadline = time.monotonic() + 5
-                result = None
-                while time.monotonic() < deadline:
-                    while not second.messages.empty():
-                        kind, data = second.messages.get_nowait()
-                        if kind == "replay_loaded":
-                            result = data
-                            break
-                    if result:
-                        break
-                    time.sleep(.01)
-                self.assertIsNotNone(result)
-                self.assertEqual(result["session"], second.session)
-                self.assertEqual([s.readings[0].utilization for s in result["records"]], [20, 30])
-                self.assertIsNone(result["records"][-1].readings[0].memory)
-                self.assertEqual(result["records"][-1].wall_time, now-1)
+                completed = next_replay_result()
+                self.assertEqual(completed["session"], first_session)
+                self.assertEqual([s.readings[0].utilization for s in completed["records"]], [10])
+
+                # "This session" is an explicitly selected frozen live snapshot.
+                self.assertTrue(second.replay_current())
+                current = next_replay_result()
+                self.assertEqual(current["session"], second.session)
+                self.assertEqual([s.readings[0].utilization for s in current["records"]], [20, 30])
+                self.assertIsNone(current["records"][-1].readings[0].memory)
+                self.assertEqual(current["records"][-1].wall_time, now-1)
             finally:
                 second.close()
 
