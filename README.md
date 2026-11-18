@@ -109,6 +109,8 @@ The slim horizontal scrollbar appears **only while zoomed**. Drag it to inspect 
 
 The small **circled clock button** switches that window between relative ages and aligned local times such as **10:32 AM**. Zoom and pan stay in place; short ranges show seconds or milliseconds, and midnight crossings include dates.
 
+Choose **Line ▾ → Time-at-load heatmap** in any graph to see how long each GPU spent in each utilization, VRAM, temperature, or power band. All GPU lanes in the panel share the same value scale. Yellow marks brief occupancy and purple marks sustained occupancy within a time column. Hover for the value band, estimated duration, coverage, and time range. The estimate holds each reading until the next sample when the gap is at most 2.5 seconds. The gray coverage strip shows which portions of the timeline have data. Enlarge or detach a graph for finer bands, or zoom into a short workload for finer time columns. Live, Replay, and detached graphs remember their own view selections.
+
 ![Clock-time axis and expanded frosted History choices](docs/images/07-clock-history.png)
 
 ### 05 · Four panels, even when space gets narrow

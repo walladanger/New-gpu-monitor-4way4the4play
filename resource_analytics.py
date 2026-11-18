@@ -5,6 +5,7 @@ manufactures missing telemetry or treats high utilization as time spent.
 """
 from __future__ import annotations
 from dataclasses import dataclass
+from functools import lru_cache
 import math
 
 from PIL import Image, ImageDraw
@@ -161,6 +162,7 @@ def _mix(a,b,amount):
     return "#" + "".join(f"{value:02X}" for value in out)
 
 
+@lru_cache(maxsize=128)
 def intensity_color(fraction):
     if fraction<=0:
         return PANEL
@@ -171,8 +173,16 @@ def intensity_color(fraction):
     return _mix("#EF4444","#6D28D9",(fraction-.55)/.45)
 
 
-def render_occupancy(width,height,history,metric,now,seconds,columns=24,bands=12):
+def occupancy_resolution(width, height, seconds):
+    return (max(2, min(100, math.ceil(seconds), (width - 95) // 4)),
+            max(2, min(48, (height - 98) // 4)))
+
+
+def render_occupancy(width,height,history,metric,now,seconds,columns=None,bands=None):
     width,height=max(320,int(width)),max(180,int(height))
+    default_columns, default_bands = occupancy_resolution(width, height, seconds)
+    columns = default_columns if columns is None else columns
+    bands = default_bands if bands is None else bands
     image=Image.new("RGB",(width,height),PANEL)
     draw=ImageDraw.Draw(image)
     matrix,scale=occupancy_bins(history,metric,now,seconds,columns,bands)
@@ -192,14 +202,14 @@ def render_occupancy(width,height,history,metric,now,seconds,columns=24,bands=12
             y1=round(top+(bands-1-band)*cell_height)+1
             y2=round(top+(bands-band)*cell_height)-1
             if x2>=x1 and y2>=y1:
-                draw.rectangle((x1,y1,x2,y2),fill=intensity_color(t/interval))
+                draw.rectangle((x1,y1,x2,y2),fill=intensity_color(round(t/interval, 2)))
     draw.text((left-9,top+4),f"{scale:g}",fill=MUTED,font=font(10),anchor="rm")
     draw.text((left-9,bottom),f'{low:g}',fill=MUTED,font=font(10),anchor="rm")
     draw.text((left,bottom+13),f"-{round(seconds/60,1):g}m",fill=MUTED,font=font(10),anchor="lm")
     draw.text((right,bottom+13),"Now",fill=MUTED,font=font(10),anchor="rm")
-    draw.text((left,height-16),"Duration in each range: ",fill=MUTED,font=font(10),anchor="lm")
+    draw.text((left,height-16),f"{columns} time bins · {bands} bands",fill=MUTED,font=font(10),anchor="lm")
     for i,shade in enumerate(("#FCD34D","#EF4444","#6D28D9")):
-        x=left+155+i*58
-        draw.rectangle((x,height-21,x+27,height-11),fill=shade)
-    draw.text((min(right,left+350),height-16),"more time →",fill=MUTED,font=font(10),anchor="lm")
+        x=left+117+i*15
+        draw.rectangle((x,height-21,x+14,height-11),fill=shade)
+    draw.text((left+167,height-16),"more time →",fill=MUTED,font=font(10),anchor="lm")
     return image

@@ -84,7 +84,8 @@ Tray monitoring, alerts, and process details in this section are deferred until 
 
 - [ ] Active requests, tokens/sec, and TTFT through real runtime/server adapters. These cannot be derived from GPU utilization.
 - [x] CPU/RAM/storage context, four configurable gauges, expandable detail panels, saved settings and system occupancy heatmaps while preserving four GPU panels.
-- [ ] Archive/replay/export system telemetry and add GPU heatmaps.
+- [x] GPU time-at-load heatmaps in Live, Replay and detached charts.
+- [ ] Archive, replay and export system telemetry.
 - [ ] AMD/Intel collectors with explicit capabilities and validation.
 - [ ] Evaluate GPU Taskman integration separately. There is no current dependency or integration.
 

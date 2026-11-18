@@ -47,6 +47,7 @@ def view(value):
         [old_focus] if old_focus else [])
     result.update(colors=colors,styles=styles,opacity=opacity,focus=old_focus,
                   focus_uuids=focus_uuids,
+                  graph_mode='heatmap' if value.get('graph_mode')=='heatmap' else 'line',
                   time_mode='clock' if value.get('time_mode')=='clock' else 'relative')
     for key,maximum,default in (('zoom',1800,1),('lag',3600,0)):
         number=value.get(key,default)
@@ -74,6 +75,8 @@ def validate(value):
     main['global_gpu_settings']=raw.get('global_gpu_settings') is not False
     charts=raw.get('charts',{})
     main['charts']={key:view(data) for key,data in charts.items() if key in METRIC_KEYS} if isinstance(charts,dict) else {}
+    modes=raw.get('replay_modes',{})
+    main['replay_modes']={key:'heatmap' for key,mode in modes.items() if key in METRIC_KEYS and mode=='heatmap'} if isinstance(modes,dict) else {}
     detached=[]
     raw=value.get('detached',[])
     if isinstance(raw,list):
