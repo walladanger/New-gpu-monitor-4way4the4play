@@ -14,7 +14,7 @@ import tkinter as tk
 from PIL import Image, ImageDraw
 
 from gpu_data import Collector, METRICS, PinStore, Snapshot, panel_columns, gpu_labels
-from graph_scene import BG, PANEL, TEXT, MUTED, GRID, COLORS, font, render_graph
+from graph_scene import BG, PANEL, TEXT, MUTED, GRID, COLORS, font, render_graph, dim_color
 from chart_view import TimeView
 from controls import DarkSelect, QuickMenu, ExportMenu, SlimScrollbar
 from exporting import visible_records, export_csv, export_pdf
@@ -78,7 +78,7 @@ class Chart(tk.Frame):
         self.inspector_position, self.drag_origin = None, None
         self.row_offset, self.active_pin = 0, None
         self.last_context = None
-        self.focused_uuid = None
+        self.focus_set = set()
         self.series_colors, self.line_styles, self.names = {}, {}, {}
         self.view = TimeView()
         self.rendered_bounds = None
@@ -118,6 +118,15 @@ class Chart(tk.Frame):
         self.canvas.bind("<ButtonRelease-1>", lambda _: setattr(self, "drag_origin", None))
         self.canvas.bind("<MouseWheel>", self.wheel)
         self.canvas.bind("<Motion>", self.pointer)
+
+    @property
+    def focused_uuid(self):
+        """Backward-compatible single-focus accessor."""
+        return next(iter(self.focus_set)) if len(self.focus_set) == 1 else None
+
+    @focused_uuid.setter
+    def focused_uuid(self, value):
+        self.focus_set = {value} if value else set()
 
     def toggle_time_mode(self):
         self.time_mode = "clock" if self.time_mode == "relative" else "relative"
@@ -202,11 +211,18 @@ class Chart(tk.Frame):
             self.render(*self.last_context)
 
     def focus_gpu(self, uuid):
-        target = None if self.focused_uuid == uuid else uuid
+        selected = set(self.focus_set)
+        if uuid in selected:
+            selected.remove(uuid)
+        else:
+            selected.add(uuid)
         targets = self.controller.all_charts() if self.controller.global_gpu_settings.get() else [self]
         for chart in targets:
-            chart.focused_uuid = target
-        logging.getLogger('gpu_live_graphs').info('GPU button metric=%s gpu=%s global=%s',self.key,uuid,self.controller.global_gpu_settings.get())
+            chart.focus_set = set(selected)
+        self.controller.update_legend_focus()
+        logging.getLogger('gpu_live_graphs').info(
+            'GPU highlight metric=%s highlighted=%s global=%s',
+            self.key, sorted(selected), self.controller.global_gpu_settings.get())
         self.controller.schedule_redraw()
         self.refresh()
         QuickMenu(self, uuid, self.value_labels[uuid])
@@ -224,7 +240,7 @@ class Chart(tk.Frame):
         ids = [uid for uid in devices if selected is None or uid == selected]
         names = gpu_labels(devices)
         self.names = names
-        focus = self.focused_uuid if self.focused_uuid in ids else None
+        focus = frozenset(uid for uid in self.focus_set if uid in ids)
         for uid,label in self.value_labels.items():
             if uid not in ids and label.winfo_manager():
                 label.grid_forget()
@@ -240,12 +256,12 @@ class Chart(tk.Frame):
                                                   font=("Segoe UI", 11, "bold"))
             current = getattr(devices[uid], self.key) if uid in available else None
             value = "—" if current is None else f"{current:.1f}"
-            configuration=(f'{names[uid]}  {value} {self.unit}',colors[uid] if not focus or focus==uid else MUTED,focus==uid)
+            label_color = dim_color(colors[uid]) if focus and uid not in focus else colors[uid]
+            configuration=(f'{names[uid]}  {value} {self.unit}',label_color,uid in focus)
             if getattr(self.value_labels[uid],'_value_configuration',None)!=configuration:
                 self.value_labels[uid].configure(text=f"{names[uid]}  {value} {self.unit}",
-                                             fg=colors[uid] if not focus or focus == uid else MUTED,
-                                             activeforeground=colors[uid],
-                                             font=("Segoe UI", 11, "bold underline" if focus == uid else "bold"))
+                                             fg=label_color, activeforeground=colors[uid],
+                                             font=("Segoe UI", 11, "bold underline" if uid in focus else "bold"))
                 self.value_labels[uid]._value_configuration=configuration
             position=(index//columns,index%columns)
             if getattr(self.value_labels[uid],'_grid_position',None)!=position or not self.value_labels[uid].winfo_manager():
@@ -262,7 +278,7 @@ class Chart(tk.Frame):
                 focus, self.line_styles.copy(), now, background)
         kwargs = dict(opacities=self.series_opacity.copy(), time_mode=self.time_mode)
         presentation = (width,height,selected,tuple(colors.items()),tuple(self.line_styles.items()),
-                        tuple(self.series_opacity.items()),self.time_mode,focus,tuple(self.pins.pins),
+                        tuple(self.series_opacity.items()),self.time_mode,tuple(sorted(focus)),tuple(self.pins.pins),
                         self.inspector_position,self.row_offset,self.active_pin,self.view.zoom,self.view.lag)
         key = (presentation,len(history),history[-1].stamp if history else None,round(right,1))
         context = self.last_context
@@ -346,7 +362,7 @@ class DetachedWindow(tk.Toplevel):
         self.export_button = button(controls, "Export", lambda: controller.open_export([self.chart], self.export_button))
         self.export_button.pack(side="right")
         self.chart = Chart(self, controller, source.key, source.title, source.unit, False, source.pins.copy())
-        self.chart.focused_uuid = source.focused_uuid
+        self.chart.focus_set = set(source.focus_set)
         self.chart.series_colors = source.series_colors.copy()
         self.chart.line_styles = source.line_styles.copy()
         self.chart.series_opacity = source.series_opacity.copy()
