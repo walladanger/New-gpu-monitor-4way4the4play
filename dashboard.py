@@ -602,6 +602,94 @@ class Dashboard(tk.Tk):
             lambda event: (self.replay_viewport.yview_scroll(
                 -3 if event.delta > 0 else 3, "units"), "break")[1])
 
+    def setup_system_tab(self):
+        """Add CPU/RAM/Storage without replacing the existing GPU dashboard."""
+        tk.Label(self.system_page,
+                 text="SYSTEM RESOURCES  ·  Logical CPU utilization, memory and drive metrics",
+                 bg=BG,fg=MUTED,font=("Segoe UI",10),anchor="w").pack(
+                     fill="x",padx=24,pady=(13,8))
+        tk.Label(self.system_page,
+                 text="Use Sensors for multiple readings and Style / color for the same five graph styles. CPU clocks are system-reported, not per-thread measurements.",
+                 bg=BG,fg=MUTED,font=("Segoe UI",9),anchor="w",wraplength=980,justify="left").pack(
+                     fill="x",padx=24,pady=(0,8))
+        body=tk.Frame(self.system_page,bg=BG)
+        body.pack(fill="both",expand=True,padx=(18,8))
+        self.system_viewport=tk.Canvas(body,bg=BG,highlightthickness=0)
+        self.system_scrollbar=SlimScrollbar(body,"vertical",self.system_viewport.yview)
+        self.system_viewport.pack(side="left",fill="both",expand=True)
+        self.system_viewport.configure(
+            yscrollcommand=self.system_scrollbar.set,yscrollincrement=24)
+        self.system_grid=tk.Frame(self.system_viewport,bg=BG)
+        self.system_grid_item=self.system_viewport.create_window(
+            0,0,window=self.system_grid,anchor="nw")
+        self.system_panels={kind:SystemPanel(self.system_grid,self,kind)
+                            for kind in ("cpu","ram","disk")}
+        self.system_columns=None
+        self.system_viewport.bind("<Configure>",lambda _:self.layout_system_graphs())
+        self.system_viewport.bind(
+            "<MouseWheel>",lambda event:(
+                self.system_viewport.yview_scroll(-3 if event.delta>0 else 3,"units"),
+                "break")[1])
+
+    def show_system(self):
+        if self.active_tab=="system":
+            return
+        self.replay_pause()
+        self.live_page.pack_forget()
+        self.replay_page.pack_forget()
+        self.system_page.pack(fill="both",expand=True)
+        self.active_tab="system"
+        self.style_tab_buttons()
+        self.layout_system_graphs()
+        self.refresh_status()
+        self.schedule_redraw()
+
+    def layout_system_graphs(self):
+        width,height=self.system_viewport.winfo_width(),self.system_viewport.winfo_height()
+        if width<100 or height<100:
+            return
+        columns=panel_columns(width)
+        if columns!=self.system_columns:
+            for panel in self.system_panels.values():
+                panel.grid_forget()
+            for row in range(3):
+                self.system_grid.rowconfigure(row,weight=0,minsize=0,uniform="")
+            for col in range(2):
+                self.system_grid.columnconfigure(col,weight=0,minsize=0,uniform="")
+            if columns==2:
+                self.system_grid.columnconfigure(0,weight=1,uniform="resources")
+                self.system_grid.columnconfigure(1,weight=1,uniform="resources")
+                self.system_grid.rowconfigure(0,weight=1)
+                self.system_grid.rowconfigure(1,weight=1)
+                self.system_panels["cpu"].grid(row=0,column=0,columnspan=2,
+                    sticky="nsew",padx=6,pady=6)
+                self.system_panels["ram"].grid(row=1,column=0,sticky="nsew",padx=6,pady=6)
+                self.system_panels["disk"].grid(row=1,column=1,sticky="nsew",padx=6,pady=6)
+            else:
+                self.system_grid.columnconfigure(0,weight=1)
+                for row,kind in enumerate(("cpu","ram","disk")):
+                    self.system_grid.rowconfigure(row,weight=1)
+                    self.system_panels[kind].grid(row=row,column=0,
+                        sticky="nsew",padx=6,pady=6)
+            self.system_columns=columns
+        content_height=max(height,810 if columns==2 else 1140)
+        self.system_viewport.itemconfigure(
+            self.system_grid_item,width=width,height=content_height)
+        self.system_viewport.configure(scrollregion=(0,0,width,content_height))
+        if content_height>height:
+            self.system_scrollbar.pack(side="right",fill="y")
+        else:
+            self.system_scrollbar.pack_forget()
+        for panel in self.system_panels.values():
+            panel.legends.configure(wraplength=max(220,width//columns-64))
+        self.schedule_redraw()
+
+    def accept_system(self,snapshot):
+        self.system_history.append(snapshot)
+        self.system_latest_at=snapshot.stamp
+        if self.active_tab=="system":
+            self.schedule_redraw()
+
     def style_tab_buttons(self):
         for name, control in (("live", self.live_tab_button), ("replay", self.replay_tab_button),
                               ("system", self.system_tab_button)):
