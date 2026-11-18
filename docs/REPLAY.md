@@ -8,9 +8,10 @@ existing read-only graph engine. **This feature is not in the 0.6.0 release.**
 1. Select **Replay** beside the **Live** tab.
 2. Select **Load last recording** (loading is asynchronous, not a blocking
    SQLite query on the Tk input thread).
-3. The newest retained recording session is loaded, paused at its first
-   recorded sample. A loading request makes a fixed snapshot: new incoming
-   live samples cannot silently alter a replay in progress.
+3. **Load last recording** selects the most recent completed session; if none
+   exists, it falls back to the available current session. **Snapshot this
+   session** explicitly loads the ongoing recording. Both load paused at the
+   first retained sample. New live readings never silently alter loaded Replay.
 4. Use **Play**, **Pause**, **Restart**, **End**, the timeline slider, and the
    speed choices (0.25x–4x). Playback stops automatically at the exact last
    retained sample; it does not loop or invent data.
@@ -29,7 +30,8 @@ existing read-only graph engine. **This feature is not in the 0.6.0 release.**
 - A missing reading stays missing, not zero. A held reading older than 1.5
   seconds is displayed as unavailable, and gaps in graph data remain gaps.
 - Archived sessions are identified by their existing SQLite session column.
-  Reloading selects the latest session with retained samples.
+  Replay chooses the last *completed* session by default; a separate button
+  makes a read-only snapshot of the active session.
 - History is subject to the existing **24-hour retention**, **128 MB archive
   cap**, and row retention limits. If the earliest part of a recording has
   expired, Replay starts with the earliest retained sample. It cannot recover
