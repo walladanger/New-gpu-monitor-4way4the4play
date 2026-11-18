@@ -32,6 +32,7 @@ class ResourceGauge(tk.Frame):
         self.compact=False
         self._last_value=None
         self._last_units=""
+        self._last_frame_key=None
         self.title=tk.Label(self,bg=PANEL,fg=MUTED,font=("Segoe UI",9,"bold"),
                             text=series_label(self.spec.metric),anchor="w")
         self.title.pack(fill="x",padx=9,pady=(8,2))
@@ -114,17 +115,18 @@ class ResourceGauge(tk.Frame):
             self.canvas.pack_forget()
             self.options.pack_forget()
         else:
+            self._last_frame_key=None
             self.canvas.pack(fill="both",expand=True,padx=8,pady=(1,7))
             self.options.pack(fill="x",padx=8,pady=(0,8))
 
     def render(self,history,now):
         self.history=tuple(history)
-        keys=available_metrics(self.history)
+        keys=available_metrics(self.history[-2:])
         if keys!=self.known_keys:
             self.known_keys=keys
             self.make_metric_menu()
-        if self.spec.metric not in keys and keys:
-            self.spec.metric=keys[0]
+        # An unavailable clock, drive or CPU sensor is shown as unavailable,
+        # never replaced silently by a different available metric.
         self.title.configure(text=series_label(self.spec.metric))
         last=self.history[-1] if self.history else None
         if last and now-last.stamp>4:
@@ -140,9 +142,13 @@ class ResourceGauge(tk.Frame):
         width,height=self.canvas.winfo_width(),self.canvas.winfo_height()
         if width<60 or height<60:
             return
-        limit=gauge_limit(self.spec.metric,self.history)
+        limit=gauge_limit(self.spec.metric,self.history[-300:])
+        frame_key=(width,height,self.spec.metric,value,limit,label,self.spec.color,self.spec.style)
+        if frame_key==self._last_frame_key:
+            return
         picture=render_gauge(width,height,value,limit,label,self.spec.color,self.spec.style)
         self.photo=PhotoImage(picture,master=self.canvas)
+        self._last_frame_key=frame_key
         self.canvas.backdrop_image=picture
         self.canvas.itemconfigure(self.image_item,image=self.photo)
 
