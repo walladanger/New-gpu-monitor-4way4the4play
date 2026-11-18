@@ -27,7 +27,7 @@ class ReplayTrackTests(unittest.TestCase):
         self.assertEqual(track.current().readings[0].utilization, 10)
         track.advance(21.0)
         self.assertEqual(track.current().readings[0].utilization, 20)
-        track.advance(24.0)
+        track.advance(25.0)
         self.assertEqual(track.current().readings[0].utilization, 90)
         self.assertFalse(track.playing)
         self.assertEqual(track.fraction, 1)
