@@ -42,7 +42,7 @@ The dedicated **Replay** tab was added in [PR #2](https://github.com/walladanger
 
 ### Windows installer or portable app
 
-Download the **[0.7.0 preview](https://github.com/walladanger/New-gpu-monitor-4way4the4play/releases/tag/v0.7.0)**. Run `GPU-Live-Graphs-0.6.0-Setup.exe`, or extract the entire Windows-x64 ZIP and launch `GPU-Live-Graphs.exe`. **Python does not need to be installed.** The NVIDIA driver is still required. Builds are currently unsigned.
+Download the **[0.7.0 preview](https://github.com/walladanger/New-gpu-monitor-4way4the4play/releases/tag/v0.7.0)**. Run `GPU-Live-Graphs-0.7.0-Setup.exe`, or extract the entire Windows-x64 ZIP and launch `GPU-Live-Graphs.exe`. **Python does not need to be installed.** The NVIDIA driver is still required. Builds are currently unsigned.
 
 The installer creates a Start menu shortcut, offers a desktop shortcut, and supports Windows Installed Apps removal. It installs for the current user. [Installation and verification details](INSTALL.md).
 
