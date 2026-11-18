@@ -40,8 +40,8 @@ class RenderPipeline:
                 continue
             request = state['running']
             state['future'] = None
-            state['done'] = request[0]
             state['done_id']=state['running_id']
+            succeeded = False
             try:
                 scene, elapsed = future.result()
                 self.completed += 1
@@ -50,9 +50,17 @@ class RenderPipeline:
                     logging.getLogger('gpu_live_graphs').info('Slow graph render %.3fs', elapsed)
                 if request[1] == state['wanted'][1]:
                     request[5](scene)
+                # Cache only frames that were actually rendered and presented
+                # successfully. A failed frame must be eligible for retry.
+                state['done'] = request[0]
+                succeeded = True
             except Exception:
+                state['done'] = None
                 logging.getLogger('gpu_live_graphs').exception('Graph render failed')
-            if state['wanted'][0] != state['done']:
+            # Retry automatically if a newer request arrived while this job
+            # was running, but do not spin endlessly on a permanently broken
+            # draw. A later explicit request retries the same frame.
+            if state['wanted'][0] != state['done'] and (succeeded or state['wanted_id'] != state['running_id']):
                 self.start(state)
             else:
                 state['done_id']=state['wanted_id']
