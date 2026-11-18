@@ -9,7 +9,7 @@ import tkinter as tk
 from graph_scene import BG, PANEL, TEXT, MUTED, GRID, COLORS
 from chart_view import LINE_STYLES
 from system_graph import MODE_UNITS, available_series, render_system_graph, series_label
-from ui_resources import PhotoImage
+from ui_resources import PhotoImage, BooleanVar, StringVar
 
 
 SERIES_MODES={
@@ -156,7 +156,7 @@ class SystemPanel(tk.Frame):
         menu.delete(0,"end")
         self._menu_vars=[]
         for mode in SERIES_MODES[self.group]:
-            var=tk.BooleanVar(master=self,value=self.mode==mode)
+            var=BooleanVar(master=self,value=self.mode==mode)
             self._menu_vars.append(var)
             menu.add_radiobutton(label=MODE_TITLES[mode],variable=var,value=True,
                                  command=lambda mode=mode:self.change_mode(mode))
@@ -170,7 +170,7 @@ class SystemPanel(tk.Frame):
         menu.add_command(label="Clear selection",command=lambda:self.set_selected(()))
         menu.add_separator()
         for index,key in enumerate(self._sensor_keys):
-            flag=tk.BooleanVar(master=self,value=key in self.selected)
+            flag=BooleanVar(master=self,value=key in self.selected)
             self._menu_vars.append(flag)
             menu.add_checkbutton(label=series_label(key),variable=flag,
                                  command=lambda k=key,v=flag:self.toggle_sensor(k,v.get()),
@@ -198,7 +198,7 @@ class SystemPanel(tk.Frame):
     def make_appearance_menu(self):
         menu=self.appearance_menu
         menu.delete(0,"end")
-        mode_var=tk.StringVar(master=self,value=self.style)
+        mode_var=StringVar(master=self,value=self.style)
         self._menu_vars.append(mode_var)
         for style in LINE_STYLES:
             menu.add_radiobutton(label=style,variable=mode_var,value=style,
@@ -206,7 +206,7 @@ class SystemPanel(tk.Frame):
         menu.add_separator()
         palette=tk.Menu(menu,tearoff=False,bg=PANEL,fg=TEXT,activebackground=GRID,
                         activeforeground=TEXT)
-        palette_var=tk.StringVar(master=self,value=self.palette)
+        palette_var=StringVar(master=self,value=self.palette)
         self._menu_vars.append(palette_var)
         for name in ("Original","Spectrum"):
             palette.add_radiobutton(label=name,variable=palette_var,value=name,
