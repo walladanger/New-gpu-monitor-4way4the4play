@@ -1,7 +1,7 @@
 # Replay tab — sensor recording playback (development branch)
 
 The Replay feature is separate from the Live dashboard and shares only the
-existing read-only graph engine. **This feature is not in the 0.6.0 release.**
+existing read-only graph engine. **Introduced in 0.7.0 preview; not available in 0.6.0.**
 
 ## How it works
 
