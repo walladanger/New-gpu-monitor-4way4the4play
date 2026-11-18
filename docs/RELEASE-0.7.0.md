@@ -12,6 +12,8 @@ Download the Windows x64 installer or portable ZIP from this version's release p
 - Replay at original recorded time intervals with Play/Pause, Restart, End, a scrubber and speeds from 0.25x to 4x. No interpolation, extrapolated GPU values, auto-loop, or fabricated frames.
 - Four interactive graphs using the existing chart renderer, recorded local-time axes by default, independent zoom, pins and GPU selection.
 - Missing/stale GPU values remain unavailable; replay ends at the final archived sample. The SQLite reader runs on its existing background worker.
+- GPU highlighting now supports **multiple simultaneous selections**. All devices keep their distinct line and label colors, with only a gentle dimming of unselected traces; no more gray or nearly invisible other GPUs.
+- Multi-GPU highlights propagate with the existing default-on global setting, can be local per chart, and survive preference reload and detached windows.
 - Narrow layouts expose vertical scrolling for both Live and Replay.
 - Graphs recover from transient rendering failures without permanently caching a blank frame; verified with a regression test.
 
