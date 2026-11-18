@@ -6,7 +6,7 @@
 
 ![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-70A9FF?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-37DFD0?style=flat-square)
-![Version](https://img.shields.io/badge/App-0.6.0-FFBD69?style=flat-square)
+![Version](https://img.shields.io/badge/App-0.7.0-FFBD69?style=flat-square)
 ![Telemetry](https://img.shields.io/badge/Telemetry-NVIDIA%20nvidia--smi-9CE583?style=flat-square)
 [![Windows checks](https://github.com/walladanger/New-gpu-monitor-4way4the4play/actions/workflows/windows-checks.yml/badge.svg)](https://github.com/walladanger/New-gpu-monitor-4way4the4play/actions/workflows/windows-checks.yml)
 
@@ -22,11 +22,11 @@ Built in **Python**, with **Tkinter** desktop windows and **Pillow** graph rende
 
 > **Screenshot data:** These are captures of the real application populated with synthetic readings for a reproducible feature tour. They are not benchmarks or live measurements from a particular PC. Normal operation reads your NVIDIA driver through `nvidia-smi`.
 
-## Replay tab under development
+## Replay tab · new in 0.7.0 preview
 
-A dedicated **Replay** tab is being developed in [PR #2](https://github.com/walladanger/New-gpu-monitor-4way4the4play/pull/2). It loads the last retained completed SQLite session (or explicitly snapshots the current session) and replays actual NVIDIA samples at their original intervals, with scrubbing, 0.25×–4× speed, and an exact stop at the last recorded sample. The Live dashboard keeps collecting independently. See [Replay data-fidelity notes](docs/REPLAY.md).
+The dedicated **Replay** tab was added in [PR #2](https://github.com/walladanger/New-gpu-monitor-4way4the4play/pull/2). It loads the last retained completed SQLite session (or explicitly snapshots the current session) and replays actual NVIDIA samples at their original intervals, with scrubbing, 0.25×–4× speed, and an exact stop at the last recorded sample. The Live dashboard keeps collecting independently. See [Replay data-fidelity notes](docs/REPLAY.md).
 
-**Not included in the downloadable 0.6.0 preview**; the installed 0.6.0 version remains Live-only.
+**Included in the 0.7.0 preview**. The earlier 0.6.0 installer remains Live-only.
 
 ## At a glance
 
@@ -42,7 +42,7 @@ A dedicated **Replay** tab is being developed in [PR #2](https://github.com/wall
 
 ### Windows installer or portable app
 
-Download the **[0.6.0 preview](https://github.com/walladanger/New-gpu-monitor-4way4the4play/releases/tag/v0.6.0)**. Run `GPU-Live-Graphs-0.6.0-Setup.exe`, or extract the entire Windows-x64 ZIP and launch `GPU-Live-Graphs.exe`. **Python does not need to be installed.** The NVIDIA driver is still required. Builds are currently unsigned.
+Download the **[0.7.0 preview](https://github.com/walladanger/New-gpu-monitor-4way4the4play/releases/tag/v0.7.0)**. Run `GPU-Live-Graphs-0.6.0-Setup.exe`, or extract the entire Windows-x64 ZIP and launch `GPU-Live-Graphs.exe`. **Python does not need to be installed.** The NVIDIA driver is still required. Builds are currently unsigned.
 
 The installer creates a Start menu shortcut, offers a desktop shortcut, and supports Windows Installed Apps removal. It installs for the current user. [Installation and verification details](INSTALL.md).
 
