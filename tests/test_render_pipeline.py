@@ -62,3 +62,37 @@ class PipelineTests(unittest.TestCase):
             self.assertFalse(applied)
         finally:
             pipeline.close()
+
+    def test_transient_draw_error_can_retry_the_same_frame(self):
+        # A transient Pillow failure must not permanently cache a blank panel.
+        pipeline = RenderPipeline()
+        owner = object()
+        calls = []
+        applied = []
+
+        def flaky_draw():
+            calls.append(True)
+            if len(calls) == 1:
+                raise RuntimeError("transient graph draw failure")
+            return "recovered frame"
+
+        def wait_until_idle():
+            deadline = time.monotonic() + 5
+            while pipeline.busy():
+                pipeline.poll()
+                time.sleep(.005)
+                self.assertLess(time.monotonic(), deadline)
+
+        try:
+            pipeline.request(owner, "same frame", "same view", flaky_draw, (), {}, applied.append)
+            wait_until_idle()
+            self.assertEqual(applied, [])
+            self.assertEqual(len(calls), 1)
+
+            # A fresh redraw request with unchanged data should try again.
+            pipeline.request(owner, "same frame", "same view", flaky_draw, (), {}, applied.append)
+            wait_until_idle()
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(applied, ["recovered frame"])
+        finally:
+            pipeline.close()
