@@ -1283,10 +1283,19 @@ class Dashboard(tk.Tk):
 
     def refresh_status(self):
         stale = self.latest_at is not None and time.monotonic()-self.latest_at >= 3
-        state = ("REPLAY" if self.replay_track and self.replay_track.records else "REPLAY · NO DATA") if self.active_tab == "replay" else (
-            "PAUSED" if self.paused else "NO DATA" if self.error else "RECONNECTING" if stale else "LIVE" if self.latest_at else "CONNECTING")
-        self.live.configure(text=state, fg=COLORS[2] if self.active_tab == "replay" or self.paused or self.error or stale else COLORS[0])
-        if self.active_tab == "replay":
+        system_stale = self.system_latest_at is not None and time.monotonic()-self.system_latest_at > 4
+        if self.active_tab == "system":
+            state = "SYSTEM · NO DATA" if self.system_latest_at is None else ("SYSTEM · STALE" if system_stale else "SYSTEM · LIVE")
+        else:
+            state = ("REPLAY" if self.replay_track and self.replay_track.records else "REPLAY · NO DATA") if self.active_tab == "replay" else (
+                "PAUSED" if self.paused else "NO DATA" if self.error else "RECONNECTING" if stale else "LIVE" if self.latest_at else "CONNECTING")
+        self.live.configure(text=state, fg=COLORS[2] if self.active_tab in ("replay","system") or self.paused or self.error or stale else COLORS[0])
+        if self.active_tab == "system":
+            status = ("System readings unavailable · " + (self.system_error or "Waiting for system sensors.")
+                      if self.system_latest_at is None else
+                      ("System readings are stale; waiting for refreshed samples." if system_stale else
+                      "Live CPU, RAM and disk readings · physical disk I/O and volume capacity are distinct."))
+        elif self.active_tab == "replay":
             status = self.replay_status.cget("text")
         elif self.notice and time.monotonic() < self.notice[0]:
             status = self.notice[1]
@@ -1309,6 +1318,15 @@ class Dashboard(tk.Tk):
         self.tick_job = None
         try:
             self.poll_history()
+            if self.system_collector:
+                while True:
+                    try:
+                        system_snapshot, system_error = self.system_collector.messages.get_nowait()
+                    except queue.Empty:
+                        break
+                    self.system_error = system_error
+                    if system_snapshot is not None:
+                        self.accept_system(system_snapshot)
             while True:
                 try:
                     snapshot, error = self.collector.messages.get_nowait()
@@ -1370,6 +1388,8 @@ class Dashboard(tk.Tk):
             self.collector.stop.set()
         if self.system_collector:
             self.system_collector.stop.set()
+        for panel in getattr(self,"system_panels",{}).values():
+            panel.close()
         if self.store:
             self.store.close()
         for window in self.detached:
