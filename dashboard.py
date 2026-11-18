@@ -1142,10 +1142,12 @@ class Dashboard(tk.Tk):
     def layout_graphs(self):
         self.layout_job = None
         width, height = self.viewport.winfo_width(), self.viewport.winfo_height()
+        if width < 100 or height < 100:
+            return
         columns = panel_columns(width)
         rows = 4//columns
         if columns != self.columns:
-            for i in range(4):
+            for i in range(8):
                 self.grid_frame.rowconfigure(i, weight=0, minsize=0, uniform="")
             for i in range(2):
                 self.grid_frame.columnconfigure(i, weight=0, minsize=0, uniform="")
@@ -1154,18 +1156,30 @@ class Dashboard(tk.Tk):
             for i in range(rows):
                 self.grid_frame.rowconfigure(i, weight=1, uniform="panels")
             for i, chart in enumerate(self.charts):
-                chart.grid(row=i//columns, column=i%columns, sticky="nsew", padx=6, pady=6)
+                chart.grid(row=i//columns, column=i%columns, sticky="nsew",
+                           padx=6, pady=6)
+            # Live remains a scrollable rack: GPU graphs, then four circular
+            # gauges, expandable detail graphs and the advanced occupancy view.
+            for panel, offset in ((self.resource_overview,0),
+                                  (self.resource_details,1),
+                                  (self.resource_heatmap,2)):
+                panel.grid(row=rows+offset,column=0,columnspan=columns,
+                           sticky="nsew",padx=6,pady=(5,8))
             self.columns = columns
-        content_height = max(height, rows*(300 if columns == 2 else 340))
-        self.viewport.itemconfigure(self.grid_item, width=width, height=content_height)
-        self.viewport.configure(scrollregion=(0, 0, width, content_height))
+        self.resource_overview.arrange(width-20)
+        extra=sum(max(32,widget.winfo_reqheight())+14 for widget in
+                  (self.resource_overview,self.resource_details,self.resource_heatmap))
+        min_graph_height=rows*(300 if columns == 2 else 340)
+        content_height = max(height,min_graph_height+extra)
+        self.viewport.itemconfigure(self.grid_item,width=width,height=content_height)
+        self.viewport.configure(scrollregion=(0,0,width,content_height))
         if content_height > height:
-            self.page_scrollbar.pack(side="right", fill="y")
+            self.page_scrollbar.pack(side="right",fill="y")
         else:
             self.page_scrollbar.pack_forget()
-        self.status.configure(wraplength=max(350, self.winfo_width()-48))
-        self.subtitle.configure(wraplength=max(350, self.winfo_width()-48))
-        self.instructions.configure(wraplength=max(350, self.winfo_width()-48))
+        self.status.configure(wraplength=max(350,self.winfo_width()-48))
+        self.subtitle.configure(wraplength=max(350,self.winfo_width()-48))
+        self.instructions.configure(wraplength=max(350,self.winfo_width()-48))
         self.schedule_redraw()
 
     def scroll_graphs(self, event):
