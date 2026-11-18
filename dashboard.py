@@ -559,6 +559,8 @@ class Dashboard(tk.Tk):
         self.replay_grid_item = self.replay_viewport.create_window(
             0, 0, window=self.replay_grid, anchor="nw")
         self.replay_charts = [Chart(self.replay_grid, self, *metric, detachable=False) for metric in METRICS]
+        for chart in self.replay_charts:
+            chart.time_mode = "clock"
         self.replay_columns = None
         self.replay_viewport.bind("<Configure>", lambda _: self.layout_replay_graphs())
         self.replay_viewport.bind(
@@ -968,6 +970,10 @@ class Dashboard(tk.Tk):
         content_height = max(height, rows*(300 if columns == 2 else 340))
         self.viewport.itemconfigure(self.grid_item, width=width, height=content_height)
         self.viewport.configure(scrollregion=(0, 0, width, content_height))
+        if content_height > height:
+            self.page_scrollbar.pack(side="right", fill="y")
+        else:
+            self.page_scrollbar.pack_forget()
         self.status.configure(wraplength=max(350, self.winfo_width()-48))
         self.subtitle.configure(wraplength=max(350, self.winfo_width()-48))
         self.instructions.configure(wraplength=max(350, self.winfo_width()-48))
@@ -975,7 +981,8 @@ class Dashboard(tk.Tk):
 
     def scroll_graphs(self, event):
         if event.widget.winfo_toplevel() == self:
-            self.viewport.yview_scroll(-3 if event.delta > 0 else 3, "units")
+            viewport = self.replay_viewport if self.active_tab == "replay" else self.viewport
+            viewport.yview_scroll(-3 if event.delta > 0 else 3, "units")
         return "break"
 
     def schedule_redraw(self):
