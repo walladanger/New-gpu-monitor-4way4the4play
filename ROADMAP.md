@@ -31,6 +31,18 @@ Reviewed November 13, 2026 against standalone **0.6.0 preview**. This roadmap be
 - [x] Background SQLite history with restart recovery and retained-history CSV.
 - [x] Saved colors/styles/filters/history/geometry and detached views.
 
+## Additive Replay · 0.7.0 preview
+
+- [x] Dedicated Replay tab with independent four-panel playback.
+- [x] Use existing SQLite session IDs to load the last completed recording, or explicitly freeze the current session, on the history worker.
+- [x] Preserve recorded sensor values and original sample timing; show gaps and missing values honestly.
+- [x] Play, pause, restart, seek, end and 0.25x–4x speed; playback stops at the final recorded sample.
+- [x] Keep ongoing live NVIDIA collection and the Live tab independent of replay.
+- [x] Add regression coverage and frozen-app smoke validation.
+- [ ] Qualify prolonged live recording while Replay runs, large recordings, mixed-DPI controls and upgraded installers on physical hardware.
+
+Read [Replay scope and fidelity](docs/REPLAY.md). The feature is included in the 0.7.0 preview; physical-hardware qualification remains open.
+
 ## P0 · Confidence before expansion
 
 | Item | Done when | Current state |

@@ -6,7 +6,7 @@
 
 ![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-70A9FF?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-37DFD0?style=flat-square)
-![Version](https://img.shields.io/badge/App-0.6.0-FFBD69?style=flat-square)
+![Version](https://img.shields.io/badge/App-0.7.0-FFBD69?style=flat-square)
 ![Telemetry](https://img.shields.io/badge/Telemetry-NVIDIA%20nvidia--smi-9CE583?style=flat-square)
 [![Windows checks](https://github.com/walladanger/New-gpu-monitor-4way4the4play/actions/workflows/windows-checks.yml/badge.svg)](https://github.com/walladanger/New-gpu-monitor-4way4the4play/actions/workflows/windows-checks.yml)
 
@@ -22,6 +22,12 @@ Built in **Python**, with **Tkinter** desktop windows and **Pillow** graph rende
 
 > **Screenshot data:** These are captures of the real application populated with synthetic readings for a reproducible feature tour. They are not benchmarks or live measurements from a particular PC. Normal operation reads your NVIDIA driver through `nvidia-smi`.
 
+## Replay tab · new in 0.7.0 preview
+
+The dedicated **Replay** tab was added in [PR #2](https://github.com/walladanger/New-gpu-monitor-4way4the4play/pull/2). It loads the last retained completed SQLite session (or explicitly snapshots the current session) and replays actual NVIDIA samples at their original intervals, with scrubbing, 0.25×–4× speed, and an exact stop at the last recorded sample. The Live dashboard keeps collecting independently. See [Replay data-fidelity notes](docs/REPLAY.md).
+
+**Included in the 0.7.0 preview**. The earlier 0.6.0 installer remains Live-only.
+
 ## At a glance
 
 | 🟩 See the system | 🟦 Inspect the moment | 🟧 Make it your own |
@@ -36,7 +42,7 @@ Built in **Python**, with **Tkinter** desktop windows and **Pillow** graph rende
 
 ### Windows installer or portable app
 
-Download the **[0.6.0 preview](https://github.com/walladanger/New-gpu-monitor-4way4the4play/releases/tag/v0.6.0)**. Run `GPU-Live-Graphs-0.6.0-Setup.exe`, or extract the entire Windows-x64 ZIP and launch `GPU-Live-Graphs.exe`. **Python does not need to be installed.** The NVIDIA driver is still required. Builds are currently unsigned.
+Download the **[0.7.0 preview](https://github.com/walladanger/New-gpu-monitor-4way4the4play/releases/tag/v0.7.0)**. Run `GPU-Live-Graphs-0.7.0-Setup.exe`, or extract the entire Windows-x64 ZIP and launch `GPU-Live-Graphs.exe`. **Python does not need to be installed.** The NVIDIA driver is still required. Builds are currently unsigned.
 
 The installer creates a Start menu shortcut, offers a desktop shortcut, and supports Windows Installed Apps removal. It installs for the current user. [Installation and verification details](INSTALL.md).
 
@@ -74,14 +80,14 @@ Names come from the driver. Identical cards receive labels such as **RTX 3090 #1
 
 ![Selected GPU name, editable color field, hue slider, and five visual line options](docs/images/02-line-options.png)
 
-Click a GPU name **inside a panel** to emphasize its trace and dim the others. **Global GPU settings is on by default**: focus and appearance follow the same GPU across all main and detached data windows. Uncheck it to edit only the clicked window. Its frosted menu contains:
+Click a GPU name **inside a panel** to add or remove it from the highlighted set. You can highlight **several GPUs simultaneously**. All GPU traces and value labels retain their assigned colors; only non-highlighted traces are slightly dimmed (not turned gray). **Global GPU settings is on by default**: highlighting and appearance propagate across the main, detached and Replay panels. Uncheck it to edit only the clicked window. Its frosted menu contains:
 
 - **Color input:** type `#RRGGBB` or `#RGB`; valid complete colors preview immediately.
 - **Hue slider:** change the color visually.
 - **Transparency slider:** fade that GPU's line and shading from opaque to invisible, keeping grid labels readable.
 - **Five visual styles:** Line, Filled, Gradient, Dashed, and Hatched.
 
-Click the same name again to restore equal emphasis. The top legend can focus one GPU across all four main panels. Exports stay in the toolbar, keeping this menu focused on appearance.
+Click a highlighted name again to remove that GPU from the highlighted set, or remove all highlights to restore equal emphasis. The top legend supports the same additive selection across the four main panels. GPU colors and multi-selection are saved with preferences. Exports stay in the toolbar, keeping this menu focused on appearance.
 
 ### 03 · Pin the moment. Compare the details.
 

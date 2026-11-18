@@ -193,17 +193,27 @@ def shade_area(image, points, color, bottom, kind):
     image.paste(Image.alpha_composite(image.convert("RGBA"), overlay).convert("RGB"))
 
 
+def dim_color(color, strength=.78):
+    """Preserve a GPU's distinct hue while slightly reducing visual emphasis."""
+    raw = tuple(int(color[i:i+2], 16) for i in (1, 3, 5)) if isinstance(color, str) else color
+    background = tuple(int(PANEL[i:i+2], 16) for i in (1, 3, 5))
+    mixed = tuple(round(channel * strength + backdrop * (1-strength))
+                  for channel, backdrop in zip(raw, background))
+    return "#" + "".join(f"{channel:02X}" for channel in mixed) if isinstance(color, str) else mixed
+
+
 def render_graph(key, width, height, history, devices, colors, selected, seconds, now,
                  pins=(), inspector_position=None, row_offset=0, active_pin=None, text_scale=1.0,
                  focused=None, line_styles=None, clock_now=None, background=None, opacities=None, time_mode='relative'):
     width, height = max(100, width), max(100, height)
     image = background.copy() if background is not None else Image.new("RGB", (width, height), PANEL)
     scene = Scene(image)
-    scene.preferred_uuid=focused
     draw = ImageDraw.Draw(image)
     small = font(round(12 * text_scale))
     left, right, top, bottom = 48, width - 15, 16, height - 30
     ids = {uid for uid in devices if selected is None or uid == selected}
+    focus_ids = ({focused} if isinstance(focused, str) else set(focused or ())) & ids
+    scene.preferred_uuid = next(iter(sorted(focus_ids)), None)
     visible = [snapshot for snapshot in history if now - seconds <= snapshot.stamp <= now]
     ceiling = 100 if key in ("utilization", "temperature") else 1
     if key == "memory":
@@ -226,18 +236,17 @@ def render_graph(key, width, height, history, devices, colors, selected, seconds
         draw.text((x, bottom+16), label, fill=MUTED, font=small,
                   anchor='rm' if fraction>.94 else 'lm' if fraction<.06 else 'mm')
     locations = {}
-    for uid in sorted(ids, key=lambda uid: uid == focused):
+    for uid in sorted(ids, key=lambda uid: uid in focus_ids):
         opacity=max(0,min(1,(opacities or {}).get(uid,1)))
         if opacity==0: continue
         before=image.copy() if opacity<1 else None
         segment, previous = [], None
         previous_hit=None
-        color = colors[uid]
-        if focused and uid != focused:
-            background = tuple(int(PANEL[i:i+2], 16) for i in (1, 3, 5))
-            rgb = tuple(int(color[i:i+2], 16) for i in (1, 3, 5))
-            color = tuple(round(b+(v-b)*0.25) for b, v in zip(background, rgb))
-        weight = 3 if uid == focused else 2
+        # The old 25% blend made unselected GPU traces nearly gray.
+        # Keep each original hue, just moderately soften unselected traces.
+        highlighted = uid in focus_ids
+        color = dim_color(colors[uid]) if focus_ids and not highlighted else colors[uid]
+        weight = 3 if highlighted else 2
         kind = (line_styles or {}).get(uid, "Line")
 
         def flush():

@@ -77,6 +77,24 @@ class HistoryStore:
         except queue.Full as error:
             raise RuntimeError('History writer is busy. Try again shortly.') from error
 
+    def replay_latest(self):
+        """Choose the last completed recording, falling back to the current one."""
+        return self._queue_replay(current=False)
+
+    def replay_current(self):
+        """Freeze a read-only snapshot of the currently recording session."""
+        return self._queue_replay(current=True)
+
+    def _queue_replay(self, current):
+        if self.closed:
+            return False
+        try:
+            self.tasks.put_nowait(('replay', current))
+            return True
+        except queue.Full:
+            self.error = 'History is busy; replay could not be loaded yet.'
+            return False
+
     def flush(self,timeout=5):
         done=threading.Event()
         self.tasks.put(('flush',done),timeout=timeout)
@@ -144,6 +162,39 @@ class HistoryStore:
             except (ValueError,TypeError,KeyError,RecursionError,OverflowError):
                 logging.getLogger('gpu_live_graphs').warning('Skipped an invalid archived sample')
         self.messages.put(('loaded',records))
+
+    def _load_replay(self,connection,current=False):
+        # Read on the history worker; the Tk thread must never scan SQLite.
+        anchor=(time.monotonic(),time.time())
+        cutoff=anchor[1]-self.retention
+        if current:
+            row=connection.execute(
+                'SELECT session FROM samples WHERE session=? AND wall>=? AND wall<=? ORDER BY wall DESC,id DESC LIMIT 1',
+                (self.session,cutoff,anchor[1]+1)).fetchone()
+        else:
+            row=connection.execute(
+                'SELECT session FROM samples WHERE session<>? AND wall>=? AND wall<=? ORDER BY wall DESC,id DESC LIMIT 1',
+                (self.session,cutoff,anchor[1]+1)).fetchone()
+            if row is None:
+                # First launch: there is no completed run, so offer a snapshot
+                # of the active session rather than silently returning nothing.
+                row=connection.execute(
+                    'SELECT session FROM samples WHERE wall>=? AND wall<=? ORDER BY wall DESC,id DESC LIMIT 1',
+                    (cutoff,anchor[1]+1)).fetchone()
+        if row is None:
+            self.messages.put(('replay_loaded',{'session':None,'records':[]}))
+            return
+        session=row[0]
+        cursor=connection.execute(
+            'SELECT wall,payload FROM samples WHERE session=? AND wall>=? AND wall<=? ORDER BY wall,id',
+            (session,cutoff,anchor[1]+1))
+        records=[]
+        for wall,payload in cursor:
+            try:
+                records.append(restore(wall,payload,anchor))
+            except (ValueError,TypeError,KeyError,RecursionError,OverflowError):
+                logging.getLogger('gpu_live_graphs').warning('Skipped an invalid replay record')
+        self.messages.put(('replay_loaded',{'session':session,'records':records}))
 
     def _make_room(self,connection,payload):
         # Reclaim before each insert, including after a previous full-disk error.
@@ -228,7 +279,15 @@ class HistoryStore:
                                 self.messages.put(('recovered',None))
                         elif task[0]=='export':
                             self._export(connection,*task[1:])
+                        elif task[0]=='replay':
+                            self._load_replay(connection,task[1])
+                    elif task[0]=='replay':
+                        self.messages.put(('replay_loaded',{'session':None,'records':[],
+                            'error':self.error or 'History database is unavailable'}))
                 except (OSError,sqlite3.Error,ValueError,TypeError) as error:
+                    if task[0]=='replay':
+                        self.messages.put(('replay_loaded',{'session':None,'records':[],
+                                                           'error':str(error)}))
                     self.error=f'History storage: {error}'
                     self.messages.put(('error',self.error))
                     logging.getLogger('gpu_live_graphs').error(self.error)

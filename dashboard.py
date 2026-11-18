@@ -14,7 +14,7 @@ import tkinter as tk
 from PIL import Image, ImageDraw
 
 from gpu_data import Collector, METRICS, PinStore, Snapshot, panel_columns, gpu_labels
-from graph_scene import BG, PANEL, TEXT, MUTED, GRID, COLORS, font, render_graph
+from graph_scene import BG, PANEL, TEXT, MUTED, GRID, COLORS, font, render_graph, dim_color
 from chart_view import TimeView
 from controls import DarkSelect, QuickMenu, ExportMenu, SlimScrollbar
 from exporting import visible_records, export_csv, export_pdf
@@ -25,6 +25,7 @@ from history_store import HistoryStore
 from preferences import Preferences
 from version import VERSION
 from render_pipeline import RenderPipeline
+from replay import ReplayTrack
 from ui_resources import PhotoImage,BooleanVar,drain_resources
 from chart_view import normalize_color, LINE_STYLES
 
@@ -77,7 +78,7 @@ class Chart(tk.Frame):
         self.inspector_position, self.drag_origin = None, None
         self.row_offset, self.active_pin = 0, None
         self.last_context = None
-        self.focused_uuid = None
+        self.focus_set = set()
         self.series_colors, self.line_styles, self.names = {}, {}, {}
         self.view = TimeView()
         self.rendered_bounds = None
@@ -117,6 +118,15 @@ class Chart(tk.Frame):
         self.canvas.bind("<ButtonRelease-1>", lambda _: setattr(self, "drag_origin", None))
         self.canvas.bind("<MouseWheel>", self.wheel)
         self.canvas.bind("<Motion>", self.pointer)
+
+    @property
+    def focused_uuid(self):
+        """Backward-compatible single-focus accessor."""
+        return next(iter(self.focus_set)) if len(self.focus_set) == 1 else None
+
+    @focused_uuid.setter
+    def focused_uuid(self, value):
+        self.focus_set = {value} if value else set()
 
     def toggle_time_mode(self):
         self.time_mode = "clock" if self.time_mode == "relative" else "relative"
@@ -201,11 +211,18 @@ class Chart(tk.Frame):
             self.render(*self.last_context)
 
     def focus_gpu(self, uuid):
-        target = None if self.focused_uuid == uuid else uuid
+        selected = set(self.focus_set)
+        if uuid in selected:
+            selected.remove(uuid)
+        else:
+            selected.add(uuid)
         targets = self.controller.all_charts() if self.controller.global_gpu_settings.get() else [self]
         for chart in targets:
-            chart.focused_uuid = target
-        logging.getLogger('gpu_live_graphs').info('GPU button metric=%s gpu=%s global=%s',self.key,uuid,self.controller.global_gpu_settings.get())
+            chart.focus_set = set(selected)
+        self.controller.update_legend_focus()
+        logging.getLogger('gpu_live_graphs').info(
+            'GPU highlight metric=%s highlighted=%s global=%s',
+            self.key, sorted(selected), self.controller.global_gpu_settings.get())
         self.controller.schedule_redraw()
         self.refresh()
         QuickMenu(self, uuid, self.value_labels[uuid])
@@ -223,7 +240,7 @@ class Chart(tk.Frame):
         ids = [uid for uid in devices if selected is None or uid == selected]
         names = gpu_labels(devices)
         self.names = names
-        focus = self.focused_uuid if self.focused_uuid in ids else None
+        focus = frozenset(uid for uid in self.focus_set if uid in ids)
         for uid,label in self.value_labels.items():
             if uid not in ids and label.winfo_manager():
                 label.grid_forget()
@@ -239,12 +256,12 @@ class Chart(tk.Frame):
                                                   font=("Segoe UI", 11, "bold"))
             current = getattr(devices[uid], self.key) if uid in available else None
             value = "—" if current is None else f"{current:.1f}"
-            configuration=(f'{names[uid]}  {value} {self.unit}',colors[uid] if not focus or focus==uid else MUTED,focus==uid)
+            label_color = dim_color(colors[uid]) if focus and uid not in focus else colors[uid]
+            configuration=(f'{names[uid]}  {value} {self.unit}',label_color,uid in focus)
             if getattr(self.value_labels[uid],'_value_configuration',None)!=configuration:
                 self.value_labels[uid].configure(text=f"{names[uid]}  {value} {self.unit}",
-                                             fg=colors[uid] if not focus or focus == uid else MUTED,
-                                             activeforeground=colors[uid],
-                                             font=("Segoe UI", 11, "bold underline" if focus == uid else "bold"))
+                                             fg=label_color, activeforeground=colors[uid],
+                                             font=("Segoe UI", 11, "bold underline" if uid in focus else "bold"))
                 self.value_labels[uid]._value_configuration=configuration
             position=(index//columns,index%columns)
             if getattr(self.value_labels[uid],'_grid_position',None)!=position or not self.value_labels[uid].winfo_manager():
@@ -261,7 +278,7 @@ class Chart(tk.Frame):
                 focus, self.line_styles.copy(), now, background)
         kwargs = dict(opacities=self.series_opacity.copy(), time_mode=self.time_mode)
         presentation = (width,height,selected,tuple(colors.items()),tuple(self.line_styles.items()),
-                        tuple(self.series_opacity.items()),self.time_mode,focus,tuple(self.pins.pins),
+                        tuple(self.series_opacity.items()),self.time_mode,tuple(sorted(focus)),tuple(self.pins.pins),
                         self.inspector_position,self.row_offset,self.active_pin,self.view.zoom,self.view.lag)
         key = (presentation,len(history),history[-1].stamp if history else None,round(right,1))
         context = self.last_context
@@ -345,7 +362,7 @@ class DetachedWindow(tk.Toplevel):
         self.export_button = button(controls, "Export", lambda: controller.open_export([self.chart], self.export_button))
         self.export_button.pack(side="right")
         self.chart = Chart(self, controller, source.key, source.title, source.unit, False, source.pins.copy())
-        self.chart.focused_uuid = source.focused_uuid
+        self.chart.focus_set = set(source.focus_set)
         self.chart.series_colors = source.series_colors.copy()
         self.chart.line_styles = source.line_styles.copy()
         self.chart.series_opacity = source.series_opacity.copy()
@@ -389,6 +406,11 @@ class Dashboard(tk.Tk):
         self.geometry("1180x960")
         self.minsize(450, 600)
         self.configure(bg=BG)
+        self.active_tab = "live"
+        self.replay_track = None
+        self.replay_loading = False
+        self.replay_job = None
+        self._replay_slider_updating = False
         self.history = deque(maxlen=4000)
         persist_enabled=collect if persist is None else persist
         preferences_enabled=collect if preferences is None else preferences
@@ -419,7 +441,16 @@ class Dashboard(tk.Tk):
         self.subtitle = tk.Label(self, text="NVIDIA driver readings · 1-second refresh · one line per GPU", bg=BG,
                                  fg=MUTED, font=("Segoe UI", 10), wraplength=400, justify="left")
         self.subtitle.pack(anchor="w", padx=25)
-        self.toolbar = tk.Frame(self, bg=BG)
+        self.tab_strip = tk.Frame(self, bg=BG)
+        self.tab_strip.pack(fill="x", padx=24, pady=(11, 1))
+        self.live_tab_button = button(self.tab_strip, "●  Live", self.show_live)
+        self.live_tab_button.pack(side="left", padx=(0, 5))
+        self.replay_tab_button = button(self.tab_strip, "↺  Replay", self.show_replay)
+        self.replay_tab_button.pack(side="left")
+        self.live_page = tk.Frame(self, bg=BG)
+        self.live_page.pack(fill="both", expand=True)
+        self.replay_page = tk.Frame(self, bg=BG)
+        self.toolbar = tk.Frame(self.live_page, bg=BG)
         self.toolbar.pack(fill="x", padx=24, pady=(14, 8))
         filters = tk.Frame(self.toolbar, bg=BG)
         filters.grid(row=0, column=0, sticky="w")
@@ -446,22 +477,22 @@ class Dashboard(tk.Tk):
         self.pause_button = button(self.actions, "Pause", self.toggle_pause)
         self.pause_button.pack(side="left")
         self.toolbar.bind("<Configure>", self.layout_toolbar)
-        options = tk.Frame(self,bg=BG)
+        options = tk.Frame(self.live_page,bg=BG)
         options.pack(fill="x",padx=24,pady=(0,5))
         tk.Checkbutton(options,text="Global GPU settings",variable=self.global_gpu_settings,command=self.toggle_global_gpu_settings,bg=BG,fg=MUTED,selectcolor=PANEL,activebackground=BG,activeforeground=TEXT,font=("Segoe UI",10)).pack(side="left")
         self.settings_button=button(options,"Settings",self.open_settings)
         self.settings_button.pack(side="right")
-        self.legend = tk.Frame(self, bg=BG)
+        self.legend = tk.Frame(self.live_page, bg=BG)
         self.legend.pack(fill="x", padx=24, pady=(0, 7))
         self.legend_labels = {}
         self.legend.bind("<Configure>", lambda _: self.layout_legend())
-        self.instructions = tk.Label(self, text="Click a GPU name for quick options · wheel to zoom · Shift+wheel to scroll the page · click a line to pin",
+        self.instructions = tk.Label(self.live_page, text="Click a GPU name for quick options · wheel to zoom · Shift+wheel to scroll the page · click a line to pin",
                                      bg=BG, fg=MUTED, font=("Segoe UI", 9), wraplength=410, justify="left")
         self.instructions.pack(anchor="w", padx=25, pady=(0, 6))
         self.status = tk.Label(self, text="Reading graphics cards…", bg=BG, fg=MUTED,
                                anchor="w", font=("Segoe UI", 9), wraplength=1100, justify="left")
         self.status.pack(side="bottom", fill="x", padx=24, pady=(8, 12))
-        body = tk.Frame(self, bg=BG)
+        body = tk.Frame(self.live_page, bg=BG)
         body.pack(fill="both", expand=True, padx=(18, 8))
         self.viewport = tk.Canvas(body, bg=BG, highlightthickness=0)
         scrollbar = SlimScrollbar(body, "vertical", self.viewport.yview)
@@ -473,6 +504,8 @@ class Dashboard(tk.Tk):
         self.charts = [Chart(self.grid_frame, self, *metric) for metric in METRICS]
         self.viewport.bind("<Configure>", self.schedule_layout)
         self.viewport.bind("<MouseWheel>", self.scroll_graphs)
+        self.setup_replay_tab()
+        self.style_tab_buttons()
         self.ambient = AmbientTheme(self)
         self.deiconify()
         if self.saved_preferences:
@@ -484,10 +517,266 @@ class Dashboard(tk.Tk):
         self.after(250,self.heartbeat)
         logging.getLogger('gpu_live_graphs').info('phase=dashboard_ready async_render=%s',self.async_render)
 
+    def setup_replay_tab(self):
+        """A separate, extensible view; source data and the live view stay isolated."""
+        sources = tk.Frame(self.replay_page, bg=BG)
+        sources.pack(fill="x", padx=24, pady=(12, 3))
+        button(sources, "Load last recording", self.load_replay).pack(side="left", padx=(0, 8))
+        button(sources, "Snapshot this session", lambda: self.load_replay(current=True)).pack(side="left")
+        bar = tk.Frame(self.replay_page, bg=BG)
+        bar.pack(fill="x", padx=24, pady=(3, 7))
+        self.replay_restart_button = button(bar, "Restart", self.replay_restart)
+        self.replay_restart_button.pack(side="left", padx=4)
+        self.replay_play_button = button(bar, "Play", self.replay_play)
+        self.replay_play_button.pack(side="left", padx=4)
+        self.replay_pause_button = button(bar, "Pause", self.replay_pause)
+        self.replay_pause_button.pack(side="left", padx=4)
+        button(bar, "End", self.replay_end).pack(side="left", padx=4)
+        tk.Label(bar, text="Speed", bg=BG, fg=MUTED, font=("Segoe UI", 10)).pack(side="left", padx=(12, 4))
+        self.replay_speed = DarkSelect(bar, values=["0.25×", "0.5×", "1×", "2×", "4×"], width=7)
+        self.replay_speed.set("1×")
+        self.replay_speed.pack(side="left")
+        self.replay_speed.bind("<<ComboboxSelected>>", self.replay_speed_changed)
+        seek = tk.Frame(self.replay_page, bg=BG)
+        seek.pack(fill="x", padx=24, pady=(0, 6))
+        self.replay_slider = tk.Scale(
+            seek, from_=0, to=1000, orient="horizontal", showvalue=0, resolution=1,
+            bg=BG, fg=TEXT, troughcolor=GRID, activebackground=COLORS[0],
+            highlightthickness=0, borderwidth=0, length=400,
+            command=self.replay_seek)
+        self.replay_slider.configure(state="disabled")
+        self.replay_slider.pack(side="left", fill="x", expand=True)
+        self.replay_status = tk.Label(
+            self.replay_page,
+            text="No recording loaded · Replay uses saved samples, never simulated intermediate values.",
+            bg=BG, fg=MUTED, font=("Segoe UI", 9), anchor="w", justify="left",
+            wraplength=1000)
+        self.replay_status.pack(fill="x", padx=24, pady=(0, 7))
+        filters = tk.Frame(self.replay_page, bg=BG)
+        filters.pack(fill="x", padx=24, pady=(0, 7))
+        tk.Label(filters, text="Recorded GPU", bg=BG, fg=MUTED).pack(side="left", padx=(0, 5))
+        self.replay_gpu_choice = DarkSelect(filters, values=["All GPUs"], width=28)
+        self.replay_gpu_choice.set("All GPUs")
+        self.replay_gpu_choice.pack(side="left")
+        self.replay_gpu_choice.bind("<<ComboboxSelected>>", lambda _: self.schedule_redraw())
+        tk.Label(filters, text="Graph range", bg=BG, fg=MUTED).pack(side="left", padx=(18, 5))
+        self.replay_window_choice = DarkSelect(filters, values=list(WINDOWS), width=11)
+        self.replay_window_choice.set("1 minute")
+        self.replay_window_choice.pack(side="left")
+        self.replay_window_choice.bind("<<ComboboxSelected>>", lambda _: self.schedule_redraw())
+        tk.Label(
+            filters, text="Values show recorded measurements only · playback stops at the final sample",
+            bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(side="left", padx=(18, 0))
+
+        body = tk.Frame(self.replay_page, bg=BG)
+        body.pack(fill="both", expand=True, padx=(18, 8))
+        self.replay_viewport = tk.Canvas(body, bg=BG, highlightthickness=0)
+        self.replay_scrollbar = SlimScrollbar(body, "vertical", self.replay_viewport.yview)
+        self.replay_viewport.pack(side="left", fill="both", expand=True)
+        self.replay_viewport.configure(yscrollcommand=self.replay_scrollbar.set, yscrollincrement=24)
+        self.replay_grid = tk.Frame(self.replay_viewport, bg=BG)
+        self.replay_grid_item = self.replay_viewport.create_window(
+            0, 0, window=self.replay_grid, anchor="nw")
+        self.replay_charts = [Chart(self.replay_grid, self, *metric, detachable=False) for metric in METRICS]
+        for chart in self.replay_charts:
+            chart.time_mode = "clock"
+        self.replay_columns = None
+        self.replay_viewport.bind("<Configure>", lambda _: self.layout_replay_graphs())
+        self.replay_viewport.bind(
+            "<MouseWheel>",
+            lambda event: (self.replay_viewport.yview_scroll(
+                -3 if event.delta > 0 else 3, "units"), "break")[1])
+
+    def style_tab_buttons(self):
+        for name, control in (("live", self.live_tab_button), ("replay", self.replay_tab_button)):
+            selected = self.active_tab == name
+            control.configure(
+                bg="#253647" if selected else BG, fg=TEXT if selected else MUTED,
+                activebackground=GRID, activeforeground=TEXT,
+                font=("Segoe UI", 10, "bold" if selected else "normal"))
+
+    def show_live(self):
+        if self.active_tab == "live":
+            return
+        self.replay_pause()
+        self.replay_page.pack_forget()
+        self.live_page.pack(fill="both", expand=True)
+        self.active_tab = "live"
+        self.style_tab_buttons()
+        self.layout_graphs()
+        self.refresh_status()
+        self.schedule_redraw()
+
+    def show_replay(self):
+        if self.active_tab == "replay":
+            return
+        self.live_page.pack_forget()
+        self.replay_page.pack(fill="both", expand=True)
+        self.active_tab = "replay"
+        self.style_tab_buttons()
+        self.layout_replay_graphs()
+        if self.replay_track is None and not self.replay_loading:
+            self.load_replay()
+        self.refresh_status()
+        self.schedule_redraw()
+
+    def layout_replay_graphs(self):
+        width, height = self.replay_viewport.winfo_width(), self.replay_viewport.winfo_height()
+        if width < 100 or height < 100:
+            return
+        columns = panel_columns(width)
+        rows = 4 // columns
+        if columns != self.replay_columns:
+            for i in range(4):
+                self.replay_grid.rowconfigure(i, weight=0, minsize=0, uniform="")
+            for i in range(2):
+                self.replay_grid.columnconfigure(i, weight=0, minsize=0, uniform="")
+            for i in range(columns):
+                self.replay_grid.columnconfigure(i, weight=1, uniform="panels")
+            for i in range(rows):
+                self.replay_grid.rowconfigure(i, weight=1, uniform="panels")
+            for i, chart in enumerate(self.replay_charts):
+                chart.grid(row=i//columns, column=i%columns,
+                           sticky="nsew", padx=6, pady=6)
+            self.replay_columns = columns
+        content_height = max(height, rows * (300 if columns == 2 else 340))
+        self.replay_viewport.itemconfigure(
+            self.replay_grid_item, width=width, height=content_height)
+        self.replay_viewport.configure(scrollregion=(0, 0, width, content_height))
+        if content_height > height:
+            self.replay_scrollbar.pack(side="right", fill="y")
+        else:
+            self.replay_scrollbar.pack_forget()
+        self.replay_status.configure(wraplength=max(350, self.winfo_width() - 48))
+        self.schedule_redraw()
+
+    def load_replay(self, current=False):
+        self.replay_pause()
+        self.replay_loading = True
+        self.replay_status.configure(text="Loading recorded samples from local history…")
+        if self.store:
+            requested = self.store.replay_current() if current else self.store.replay_latest()
+            if not requested:
+                self.replay_loading = False
+                self.replay_status.configure(
+                    text="History writer is busy. Select Load last recording to retry.")
+        else:
+            self.replay_loading = False
+            self.replay_track = ReplayTrack(tuple(self.history), "in-memory")
+            self.configure_replay_source()
+
+    def configure_replay_source(self, error=None):
+        track = self.replay_track
+        labels = gpu_labels(track.devices) if track else {}
+        self.replay_gpu_choice.configure(values=["All GPUs"] + list(labels.values()))
+        self.replay_gpu_choice.set("All GPUs")
+        self.replay_slider.configure(state="normal" if track and track.records else "disabled")
+        self.update_replay_status(error)
+        self.schedule_redraw()
+
+    def update_replay_status(self, error=None):
+        track = self.replay_track
+        if error:
+            message = "Could not load recording: " + str(error)
+        elif self.replay_loading:
+            message = "Loading newest retained recording from local history…"
+        elif not track or not track.records:
+            message = "No saved recording found in retained history."
+        else:
+            start = datetime.fromtimestamp(track.start).strftime("%b %d, %H:%M:%S")
+            finish = datetime.fromtimestamp(track.end).strftime("%b %d, %H:%M:%S")
+            current = datetime.fromtimestamp(track.position).strftime("%b %d, %H:%M:%S")
+            source = ("In-memory preview" if track.session == "in-memory" else
+                      "Current session snapshot" if self.store and track.session == self.store.session else
+                      "Last completed recording")
+            state = "PLAYING" if track.playing else "END" if track.fraction == 1 else "READY"
+            message = (f"{source} · {start} → {finish} · "
+                       f"{current} · sample {track.index+1}/{len(track.records)} · {state}")
+        self.replay_status.configure(text=message)
+        if track and track.records:
+            self._replay_slider_updating = True
+            try:
+                self.replay_slider.set(round(track.fraction * 1000))
+            finally:
+                self._replay_slider_updating = False
+        if self.active_tab == "replay":
+            self.refresh_status()
+
+    def replay_context(self):
+        track = self.replay_track
+        seconds = WINDOWS.get(self.replay_window_choice.get(), 60)
+        if not track or not track.records:
+            return (), {}, {}, None, seconds, time.monotonic(), frozenset()
+        devices = dict(track.devices)
+        current = track.current()
+        for reading in current.readings:
+            devices[reading.uuid] = reading
+        ids = list(devices)
+        selected_index = self.replay_gpu_choice.current()
+        selected = ids[selected_index-1] if 0 < selected_index <= len(ids) else None
+        colors = {uid: self.colors.get(uid, COLORS[i % len(COLORS)])
+                  for i, uid in enumerate(devices)}
+        return (track.history(seconds), devices, colors, selected,
+                seconds, track.stamp, track.available())
+
+    def replay_seek(self, value):
+        if self._replay_slider_updating or not self.replay_track or not self.replay_track.records:
+            return
+        self.replay_track.seek(float(value) / 1000)
+        self.update_replay_status()
+        self.schedule_redraw()
+
+    def replay_speed_changed(self, _=None):
+        if self.replay_track:
+            self.replay_track.speed = float(self.replay_speed.get().rstrip("×"))
+
+    def replay_play(self):
+        if not self.replay_track or not self.replay_track.records:
+            self.load_replay()
+            return
+        self.replay_speed_changed()
+        self.replay_track.play(time.monotonic())
+        self.update_replay_status()
+        if self.replay_job is None and self.replay_track.playing:
+            self.replay_job = self.after(125, self.replay_tick)
+
+    def replay_pause(self):
+        if self.replay_track:
+            self.replay_track.pause()
+        if self.replay_job is not None:
+            self.after_cancel(self.replay_job)
+            self.replay_job = None
+        if hasattr(self, "replay_status"):
+            self.update_replay_status()
+
+    def replay_restart(self):
+        if self.replay_track and self.replay_track.records:
+            self.replay_track.seek(0)
+            self.update_replay_status()
+            self.schedule_redraw()
+
+    def replay_end(self):
+        if self.replay_track and self.replay_track.records:
+            self.replay_track.seek(1)
+            self.update_replay_status()
+            self.schedule_redraw()
+
+    def replay_tick(self):
+        self.replay_job = None
+        if self._closed or self.active_tab != "replay" or not self.replay_track:
+            return
+        if self.replay_track.advance(time.monotonic()):
+            self.update_replay_status()
+            self.schedule_redraw()
+        if self.replay_track.playing:
+            self.replay_job = self.after(125, self.replay_tick)
+
     def heartbeat(self):
         drain_resources()
         from diagnostics import pulse
         pulse()
+        if self.replay_loading:
+            self.poll_history()
         now=time.monotonic()
         delay=max(0,now-self._heartbeat_at-.25)
         self.max_ui_delay=max(self.max_ui_delay,delay)
@@ -499,7 +788,7 @@ class Dashboard(tk.Tk):
             self.after(250,self.heartbeat)
 
     def all_charts(self):
-        return self.charts+[window.chart for window in self.detached]
+        return self.charts + getattr(self, "replay_charts", []) + [window.chart for window in self.detached]
 
     def sync_global_settings(self):
         for chart in self.all_charts():
@@ -507,12 +796,22 @@ class Dashboard(tk.Tk):
             chart.line_styles=dict(self.global_styles)
             chart.series_opacity=dict(self.global_opacity)
         self.colors.update(self.global_colors)
-        for uid,label in self.legend_labels.items():
-            label.configure(fg=self.colors[uid])
+        self.update_legend_focus()
+
+    def update_legend_focus(self):
+        """Slightly dim unselected legend labels without losing their GPU colors."""
+        selected = self.charts[0].focus_set if self.charts else set()
+        for uid, label in self.legend_labels.items():
+            color = self.colors.get(uid, COLORS[0])
+            label.configure(fg=dim_color(color) if selected and uid not in selected else color)
 
     def toggle_global_gpu_settings(self):
         if self.global_gpu_settings.get():
             self.sync_global_settings()
+            selection = set(self.charts[0].focus_set)
+            for chart in self.all_charts():
+                chart.focus_set = set(selection)
+        self.update_legend_focus()
         logging.getLogger('gpu_live_graphs').info('Global GPU settings=%s',self.global_gpu_settings.get())
         self.schedule_redraw()
 
@@ -538,7 +837,7 @@ class Dashboard(tk.Tk):
             if kind=='colors':
                 self.colors[uuid]=value
                 if uuid in self.legend_labels:
-                    self.legend_labels[uuid].configure(fg=value)
+                    self.update_legend_focus()
         for target in targets:
             getattr(target,attribute)[uuid]=value
         chart.refresh()
@@ -593,7 +892,9 @@ class Dashboard(tk.Tk):
         chart.line_styles=dict(state.get('styles',{}))
         chart.series_opacity=dict(state.get("opacity",{}))
         chart.time_mode=state.get("time_mode","relative")
-        chart.focused_uuid=state.get('focus')
+        chart.focus_set=set(state.get('focus_uuids', []))
+        if not chart.focus_set and state.get('focus'):
+            chart.focused_uuid=state['focus']
         chart.view.zoom=state.get('zoom',1)
         chart.view.lag=state.get('lag',0)
 
@@ -634,6 +935,7 @@ class Dashboard(tk.Tk):
         colors={uid:chart.series_color(uid) for uid in self.devices}
         colors.update(chart.series_colors)
         return {'colors':colors,'styles':chart.line_styles,'opacity':chart.series_opacity,'time_mode':chart.time_mode,'focus':chart.focused_uuid,
+                'focus_uuids':sorted(chart.focus_set),
                 'zoom':chart.view.zoom,'lag':chart.view.lag}
 
     def preference_state(self):
@@ -703,6 +1005,10 @@ class Dashboard(tk.Tk):
         content_height = max(height, rows*(300 if columns == 2 else 340))
         self.viewport.itemconfigure(self.grid_item, width=width, height=content_height)
         self.viewport.configure(scrollregion=(0, 0, width, content_height))
+        if content_height > height:
+            self.page_scrollbar.pack(side="right", fill="y")
+        else:
+            self.page_scrollbar.pack_forget()
         self.status.configure(wraplength=max(350, self.winfo_width()-48))
         self.subtitle.configure(wraplength=max(350, self.winfo_width()-48))
         self.instructions.configure(wraplength=max(350, self.winfo_width()-48))
@@ -710,7 +1016,8 @@ class Dashboard(tk.Tk):
 
     def scroll_graphs(self, event):
         if event.widget.winfo_toplevel() == self:
-            self.viewport.yview_scroll(-3 if event.delta > 0 else 3, "units")
+            viewport = self.replay_viewport if self.active_tab == "replay" else self.viewport
+            viewport.yview_scroll(-3 if event.delta > 0 else 3, "units")
         return "break"
 
     def schedule_redraw(self):
@@ -734,8 +1041,13 @@ class Dashboard(tk.Tk):
             for root in [self]+self.detached:
                 root.ambient.paint()
             self._last_ambient=time.monotonic()
-        context = self.context(self.gpu_choice, self.window_choice)
-        if self.winfo_viewable():
+        if self.active_tab == "replay":
+            if self.winfo_viewable():
+                context = self.replay_context()
+                for chart in self.replay_charts:
+                    chart.render(*context)
+        elif self.winfo_viewable():
+            context = self.context(self.gpu_choice, self.window_choice)
             for chart in self.charts:
                 chart.render(*context)
         for window in self.detached:
@@ -756,9 +1068,15 @@ class Dashboard(tk.Tk):
         return ExportMenu(self, charts or self.charts, source or self.export_button)
 
     def focus_all(self, uuid):
-        target = None if all(chart.focused_uuid == uuid for chart in self.charts) else uuid
-        for chart in self.charts:
-            chart.focused_uuid = target
+        selected = set(self.charts[0].focus_set)
+        if uuid in selected:
+            selected.remove(uuid)
+        else:
+            selected.add(uuid)
+        targets = self.all_charts() if self.global_gpu_settings.get() else self.charts
+        for chart in targets:
+            chart.focus_set = set(selected)
+        self.update_legend_focus()
         self.redraw()
 
     def toggle_pause(self):
@@ -792,6 +1110,7 @@ class Dashboard(tk.Tk):
         names = gpu_labels(self.devices)
         for uid, label in self.legend_labels.items():
             label.configure(text=f"● {names[uid]}")
+        self.update_legend_focus()
         self.gpu_choice.configure(values=["All GPUs"] + list(names.values()))
         for root in [self]+self.detached:
             root.gpu_choice.configure(values=self.gpu_choice.cget('values'))
@@ -827,6 +1146,10 @@ class Dashboard(tk.Tk):
                     for reading in snapshot.readings:
                         self.devices[reading.uuid]=reading
                 self.restored_count=len(value)
+            elif kind=='replay_loaded':
+                self.replay_loading = False
+                self.replay_track = ReplayTrack(value['records'], value.get('session'))
+                self.configure_replay_source(value.get('error'))
             elif kind=='exported':
                 self.notice=(time.monotonic()+20,'Saved stored history to '+value)
             elif kind=='error':
@@ -849,9 +1172,12 @@ class Dashboard(tk.Tk):
 
     def refresh_status(self):
         stale = self.latest_at is not None and time.monotonic()-self.latest_at >= 3
-        state = "PAUSED" if self.paused else "NO DATA" if self.error else "RECONNECTING" if stale else "LIVE" if self.latest_at else "CONNECTING"
-        self.live.configure(text=state, fg=COLORS[2] if self.paused or self.error or stale else COLORS[0])
-        if self.notice and time.monotonic() < self.notice[0]:
+        state = ("REPLAY" if self.replay_track and self.replay_track.records else "REPLAY · NO DATA") if self.active_tab == "replay" else (
+            "PAUSED" if self.paused else "NO DATA" if self.error else "RECONNECTING" if stale else "LIVE" if self.latest_at else "CONNECTING")
+        self.live.configure(text=state, fg=COLORS[2] if self.active_tab == "replay" or self.paused or self.error or stale else COLORS[0])
+        if self.active_tab == "replay":
+            status = self.replay_status.cget("text")
+        elif self.notice and time.monotonic() < self.notice[0]:
             status = self.notice[1]
         elif self.paused:
             status = "Paused · graphs and pins are frozen. Resume to continue; the pause appears as a gap."
@@ -920,6 +1246,9 @@ class Dashboard(tk.Tk):
         if self._closed:
             return
         self.save_preferences()
+        if self.replay_job:
+            self.after_cancel(self.replay_job)
+            self.replay_job = None
         self._closed = True
         logging.getLogger('gpu_live_graphs').info('Dashboard closing ui_stalls=%s max_ui_delay=%.3fs',self.ui_stalls,self.max_ui_delay)
         if self.render_pipeline:

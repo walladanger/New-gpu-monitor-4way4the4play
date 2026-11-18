@@ -38,7 +38,14 @@ def view(value):
     raw=value.get('opacity',{})
     opacity={uid:float(number) for uid,number in list(raw.items())[:256]
              if identity(uid) and type(number) in (int,float) and math.isfinite(number) and 0<=number<=1} if isinstance(raw,dict) else {}
-    result.update(colors=colors,styles=styles,opacity=opacity,focus=identity(value.get('focus')),
+    # Version 1 settings remain readable; a legacy single focus becomes one
+    # highlighted GPU. Reject malformed entries and duplicate UUIDs.
+    old_focus=identity(value.get('focus'))
+    raw_focus=value.get('focus_uuids')
+    focus_uuids=list(dict.fromkeys(uid for uid in raw_focus[:128] if identity(uid))) if isinstance(raw_focus,list) else (
+        [old_focus] if old_focus else [])
+    result.update(colors=colors,styles=styles,opacity=opacity,focus=old_focus,
+                  focus_uuids=focus_uuids,
                   time_mode='clock' if value.get('time_mode')=='clock' else 'relative')
     for key,maximum,default in (('zoom',1800,1),('lag',3600,0)):
         number=value.get(key,default)
