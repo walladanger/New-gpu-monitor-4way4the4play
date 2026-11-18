@@ -26,6 +26,8 @@ from preferences import Preferences
 from version import VERSION
 from render_pipeline import RenderPipeline
 from replay import ReplayTrack
+from system_data import SystemCollector, SystemSnapshot
+from system_view import SystemPanel
 from ui_resources import PhotoImage,BooleanVar,drain_resources
 from chart_view import normalize_color, LINE_STYLES
 
@@ -412,6 +414,9 @@ class Dashboard(tk.Tk):
         self.replay_job = None
         self._replay_slider_updating = False
         self.history = deque(maxlen=4000)
+        self.system_history = deque(maxlen=4000)
+        self.system_latest_at = None
+        self.system_error = None
         persist_enabled=collect if persist is None else persist
         preferences_enabled=collect if preferences is None else preferences
         self.data_dir=Path(data_dir) if data_dir is not None else (data_directory() if persist_enabled or preferences_enabled else None)
@@ -429,6 +434,12 @@ class Dashboard(tk.Tk):
         self.redraw_job, self.layout_job, self.tick_job = None, None, None
         self.columns = None
         self.collector = Collector() if collect else None
+        self.system_collector = None
+        if collect:
+            try:
+                self.system_collector = SystemCollector()
+            except (ImportError, OSError, RuntimeError) as exc:
+                self.system_error = f"System sensors unavailable: {exc}"
         self.protocol("WM_DELETE_WINDOW", self.close)
         header = tk.Frame(self, bg=BG)
         header.pack(fill="x", padx=24, pady=(20, 6))
@@ -446,10 +457,13 @@ class Dashboard(tk.Tk):
         self.live_tab_button = button(self.tab_strip, "●  Live", self.show_live)
         self.live_tab_button.pack(side="left", padx=(0, 5))
         self.replay_tab_button = button(self.tab_strip, "↺  Replay", self.show_replay)
-        self.replay_tab_button.pack(side="left")
+        self.replay_tab_button.pack(side="left", padx=(0, 5))
+        self.system_tab_button = button(self.tab_strip, "▦  System", self.show_system)
+        self.system_tab_button.pack(side="left")
         self.live_page = tk.Frame(self, bg=BG)
         self.live_page.pack(fill="both", expand=True)
         self.replay_page = tk.Frame(self, bg=BG)
+        self.system_page = tk.Frame(self, bg=BG)
         self.toolbar = tk.Frame(self.live_page, bg=BG)
         self.toolbar.pack(fill="x", padx=24, pady=(14, 8))
         filters = tk.Frame(self.toolbar, bg=BG)
@@ -505,6 +519,7 @@ class Dashboard(tk.Tk):
         self.viewport.bind("<Configure>", self.schedule_layout)
         self.viewport.bind("<MouseWheel>", self.scroll_graphs)
         self.setup_replay_tab()
+        self.setup_system_tab()
         self.style_tab_buttons()
         self.ambient = AmbientTheme(self)
         self.deiconify()
@@ -588,7 +603,8 @@ class Dashboard(tk.Tk):
                 -3 if event.delta > 0 else 3, "units"), "break")[1])
 
     def style_tab_buttons(self):
-        for name, control in (("live", self.live_tab_button), ("replay", self.replay_tab_button)):
+        for name, control in (("live", self.live_tab_button), ("replay", self.replay_tab_button),
+                              ("system", self.system_tab_button)):
             selected = self.active_tab == name
             control.configure(
                 bg="#253647" if selected else BG, fg=TEXT if selected else MUTED,
@@ -600,6 +616,7 @@ class Dashboard(tk.Tk):
             return
         self.replay_pause()
         self.replay_page.pack_forget()
+        self.system_page.pack_forget()
         self.live_page.pack(fill="both", expand=True)
         self.active_tab = "live"
         self.style_tab_buttons()
@@ -611,6 +628,7 @@ class Dashboard(tk.Tk):
         if self.active_tab == "replay":
             return
         self.live_page.pack_forget()
+        self.system_page.pack_forget()
         self.replay_page.pack(fill="both", expand=True)
         self.active_tab = "replay"
         self.style_tab_buttons()
@@ -843,10 +861,10 @@ class Dashboard(tk.Tk):
         chart.refresh()
         self.schedule_redraw()
 
-    def queue_frame(self,owner,key,presentation,args,kwargs,apply):
+    def queue_frame(self,owner,key,presentation,args,kwargs,apply,draw=render_graph):
         if self.render_pipeline is None:
             self.render_pipeline=RenderPipeline()
-        self.render_pipeline.request(owner,key,presentation,render_graph,args,kwargs,apply)
+        self.render_pipeline.request(owner,key,presentation,draw,args,kwargs,apply)
         if self.render_poll_job is None:
             self.render_poll_job=self.after(16,self.poll_renders)
 
@@ -1046,6 +1064,11 @@ class Dashboard(tk.Tk):
                 context = self.replay_context()
                 for chart in self.replay_charts:
                     chart.render(*context)
+        elif self.active_tab == "system":
+            if self.winfo_viewable():
+                history=tuple(self.system_history)
+                for panel in self.system_panels.values():
+                    panel.render(history,300,time.monotonic())
         elif self.winfo_viewable():
             context = self.context(self.gpu_choice, self.window_choice)
             for chart in self.charts:
@@ -1257,6 +1280,8 @@ class Dashboard(tk.Tk):
             self.glass_popup.close()
         if self.collector:
             self.collector.stop.set()
+        if self.system_collector:
+            self.system_collector.stop.set()
         if self.store:
             self.store.close()
         for window in self.detached:
