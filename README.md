@@ -22,6 +22,12 @@ Built in **Python**, with **Tkinter** desktop windows and **Pillow** graph rende
 
 > **Screenshot data:** These are captures of the real application populated with synthetic readings for a reproducible feature tour. They are not benchmarks or live measurements from a particular PC. Normal operation reads your NVIDIA driver through `nvidia-smi`.
 
+## Replay tab under development
+
+A dedicated **Replay** tab is being developed in [PR #2](https://github.com/walladanger/New-gpu-monitor-4way4the4play/pull/2). It loads the latest retained SQLite recording session and replays actual NVIDIA samples at their original intervals, with scrubbing, 0.25×–4× speed, and an exact stop at the last recorded sample. The Live dashboard keeps collecting independently. See [Replay data-fidelity notes](docs/REPLAY.md).
+
+**Not included in the downloadable 0.6.0 preview**; the installed 0.6.0 version remains Live-only.
+
 ## At a glance
 
 | 🟩 See the system | 🟦 Inspect the moment | 🟧 Make it your own |
