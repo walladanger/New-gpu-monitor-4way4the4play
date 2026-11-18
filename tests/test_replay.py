@@ -130,6 +130,7 @@ class ReplayDashboardTests(unittest.TestCase):
             app.replay_end()
             self.assertEqual(app.replay_context()[0][-1].wall_time, second.wall_time)
             app.show_live()
+            app.update()
             self.assertEqual(app.active_tab, "live")
             self.assertEqual(tuple(app.history), original_live)
             self.assertTrue(app.live_page.winfo_ismapped())
