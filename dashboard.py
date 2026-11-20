@@ -15,6 +15,7 @@ from PIL import Image, ImageDraw
 
 from gpu_data import Collector, METRICS, PinStore, Snapshot, panel_columns, gpu_labels
 from graph_scene import BG, PANEL, TEXT, MUTED, GRID, COLORS, font, render_graph, dim_color
+from heatmap import HeatmapScene, render_heatmap
 from chart_view import TimeView
 from controls import DarkSelect, QuickMenu, ExportMenu, SlimScrollbar
 from exporting import visible_records, export_csv, export_pdf
@@ -89,6 +90,8 @@ class Chart(tk.Frame):
         self.scene_context = None
         self.series_opacity = {}
         self.time_mode = "relative"
+        self.graph_mode = "line"
+        self.hover_position = None
         self.text_scale = max(1, min(2, float(self.tk.call("tk", "scaling")) / (96/72)))
         heading = tk.Frame(self, bg=PANEL)
         heading.pack(fill="x", padx=20, pady=(16, 0))
@@ -106,6 +109,8 @@ class Chart(tk.Frame):
         self.zoom_reset = button(actions, "1×", self.reset_zoom)
         self.zoom_reset.configure(padx=6)
         self.zoom_reset.pack(side="right", padx=(6, 0))
+        self.mode_button = button(actions, "Line ▾", self.open_graph_mode)
+        self.mode_button.pack(side="right", padx=(4, 0))
         tk.Label(heading, text=unit, bg=PANEL, fg=MUTED,
                  font=("Segoe UI", 10)).pack(side="right")
         self.values = tk.Frame(self, bg=PANEL)
@@ -122,6 +127,53 @@ class Chart(tk.Frame):
         self.canvas.bind("<ButtonRelease-1>", lambda _: setattr(self, "drag_origin", None))
         self.canvas.bind("<MouseWheel>", self.wheel)
         self.canvas.bind("<Motion>", self.pointer)
+        self.canvas.bind("<Leave>", self.clear_hover)
+
+    def open_graph_mode(self):
+        menu = tk.Menu(self, tearoff=False, bg=PANEL, fg=TEXT, activebackground=GRID)
+        for mode, label in (("line", "Line chart"), ("heatmap", "Time-at-load heatmap")):
+            menu.add_command(label=("✓ " if mode == self.graph_mode else "") + label,
+                             command=lambda value=mode: self.set_graph_mode(value))
+        try:
+            menu.tk_popup(self.mode_button.winfo_rootx(),
+                          self.mode_button.winfo_rooty() + self.mode_button.winfo_height())
+        finally:
+            menu.grab_release()
+
+    def set_graph_mode(self, mode, *, redraw=True):
+        self.graph_mode = mode
+        self.mode_button.configure(text="Heatmap ▾" if mode == "heatmap" else "Line ▾")
+        self.clear_hover()
+        if redraw:
+            self.scene = None
+            self.refresh()
+
+    def clear_hover(self, _event=None):
+        self.hover_position = None
+        self.canvas.delete("heatmap-hover")
+        self.canvas.configure(cursor="")
+
+    def show_heatmap_hover(self):
+        self.canvas.delete("heatmap-hover")
+        result = self.scene.cell_at(*self.hover_position) if self.hover_position else None
+        self.canvas.configure(cursor="crosshair" if result else "")
+        if result:
+            bounds, label = result
+            tag = "heatmap-hover"
+            self.canvas.create_rectangle(*bounds, outline=TEXT, tags=tag)
+            x, y = self.hover_position
+            height = self.canvas.winfo_height()
+            item = self.canvas.create_text(5, 5, text=label, fill=TEXT, anchor="nw",
+                                           width=min(390, self.canvas.winfo_width() - 16),
+                                           font=("Segoe UI", 10), tags=tag)
+            l, t, r, b = self.canvas.bbox(item)
+            ox = max(3, min(x + 12, self.canvas.winfo_width() - (r - l) - 9))
+            oy = y + 12 if y + 12 + b - t < height - 5 else max(4, y - (b - t) - 10)
+            self.canvas.move(item, ox - l, oy - t)
+            l, t, r, b = self.canvas.bbox(item)
+            backdrop = self.canvas.create_rectangle(l - 3, t - 3, r + 3, b + 3,
+                                                    fill=BG, outline=GRID, tags=tag)
+            self.canvas.tag_lower(backdrop, item)
 
     @property
     def focused_uuid(self):
@@ -138,6 +190,10 @@ class Chart(tk.Frame):
         self.refresh()
 
     def pointer(self, event):
+        if isinstance(self.scene, HeatmapScene):
+            self.hover_position = (event.x, event.y)
+            self.show_heatmap_hover()
+            return
         if self.scene:
             cursor = "hand2" if self.scene.over_inspector(event.x, event.y) or self.scene.nearest(event.x, event.y) else ""
             if self.canvas.cget("cursor") != cursor:
@@ -145,7 +201,7 @@ class Chart(tk.Frame):
 
     def left_click(self, event):
         logging.getLogger("gpu_live_graphs").info("Graph click metric=%s x=%s y=%s",self.key,event.x,event.y)
-        if not self.scene:
+        if not self.scene or isinstance(self.scene, HeatmapScene):
             return
         if self.scene.over_inspector(event.x, event.y):
             left, top, _, _ = self.scene.inspector
@@ -190,7 +246,11 @@ class Chart(tk.Frame):
             return "break"
         if getattr(event, "state", 0) & 1:
             return self.controller.scroll_graphs(event)
-        anchor = (event.x-48)/max(1, self.canvas.winfo_width()-63)
+        if isinstance(self.scene, HeatmapScene) and self.scene.lanes:
+            left, _, right, _ = self.scene.lanes[0].bounds
+        else:
+            left, right = 48, self.canvas.winfo_width() - 15
+        anchor = (event.x-left)/max(1, right-left)
         self.zoom_by(1.2**(event.delta/120), anchor)
         return "break"
 
@@ -276,12 +336,17 @@ class Chart(tk.Frame):
             return
         ambient = getattr(self.winfo_toplevel(), "ambient", None)
         background = ambient.surface(width,height,PANEL,self.canvas) if ambient else None
-        args = (self.key, width, height, history, devices, colors, selected,
-                right-left, right, tuple(self.pins.pins), self.inspector_position,
-                self.row_offset, self.active_pin, self.text_scale,
-                focus, self.line_styles.copy(), now, background)
-        kwargs = dict(opacities=self.series_opacity.copy(), time_mode=self.time_mode)
-        presentation = (width,height,selected,tuple(colors.items()),tuple(self.line_styles.items()),
+        args = (self.key, width, height, history, devices, colors, selected, right-left, right)
+        kwargs = dict(text_scale=self.text_scale, focused=focus, clock_now=now,
+                      background=background, time_mode=self.time_mode)
+        if self.graph_mode == "heatmap":
+            draw = render_heatmap
+        else:
+            draw = render_graph
+            kwargs.update(pins=tuple(self.pins.pins), inspector_position=self.inspector_position,
+                          row_offset=self.row_offset, active_pin=self.active_pin,
+                          line_styles=self.line_styles.copy(), opacities=self.series_opacity.copy())
+        presentation = (self.graph_mode,width,height,selected,tuple(colors.items()),tuple(self.line_styles.items()),
                         tuple(self.series_opacity.items()),self.time_mode,tuple(sorted(focus)),tuple(self.pins.pins),
                         self.inspector_position,self.row_offset,self.active_pin,self.view.zoom,self.view.lag)
         key = (presentation,len(history),history[-1].stamp if history else None,round(right,1))
@@ -294,10 +359,12 @@ class Chart(tk.Frame):
             self.photo = PhotoImage(scene.image, master=self.canvas)
             self.canvas.itemconfigure(self.image_item, image=self.photo)
             self.canvas.delete('pending-pin')
+            if isinstance(scene, HeatmapScene) and self.hover_position:
+                self.show_heatmap_hover()
         if self.controller.async_render:
-            self.controller.queue_frame(self,key,presentation,args,kwargs,apply)
+            self.controller.queue_frame(self,key,presentation,args,kwargs,apply,draw)
         else:
-            apply(render_graph(*args,**kwargs))
+            apply(draw(*args,**kwargs))
 
     def export_series(self, uuid, kind, directory=None):
         if not self.last_context or not self.rendered_bounds:
@@ -317,7 +384,8 @@ class Chart(tk.Frame):
         elif kind == "pdf":
             colors = {uid: self.series_colors.get(uid, color) for uid,color in colors.items()}
             export_pdf(path, records, uuid, self.key, devices, colors, self.line_styles,
-                       self.pins.pins, left, right, now, opacities=self.series_opacity, time_mode=self.time_mode)
+                       self.pins.pins, left, right, now, opacities=self.series_opacity, time_mode=self.time_mode,
+                       heatmap_history=history if isinstance(self.scene, HeatmapScene) else None)
         else:
             raise ValueError("Choose CSV or PDF.")
         self.controller.notice = (time.monotonic()+20, f"Saved {name} visible samples to {path}")
@@ -371,6 +439,7 @@ class DetachedWindow(tk.Toplevel):
         self.chart.line_styles = source.line_styles.copy()
         self.chart.series_opacity = source.series_opacity.copy()
         self.chart.time_mode = source.time_mode
+        self.chart.set_graph_mode(source.graph_mode, redraw=False)
         self.chart.view = TimeView(source.view.zoom, source.view.lag)
         self.chart.pack(fill="both", expand=True, padx=12, pady=(0, 12))
         tk.Label(self, text="Shared live data · independent GPU, history and pins · left-click a line to pin",
@@ -1052,6 +1121,7 @@ class Dashboard(tk.Tk):
         chart.line_styles=dict(state.get('styles',{}))
         chart.series_opacity=dict(state.get("opacity",{}))
         chart.time_mode=state.get("time_mode","relative")
+        chart.set_graph_mode(state.get("graph_mode","line"), redraw=False)
         chart.focus_set=set(state.get('focus_uuids', []))
         if not chart.focus_set and state.get('focus'):
             chart.focused_uuid=state['focus']
@@ -1073,6 +1143,8 @@ class Dashboard(tk.Tk):
             self.chrome.restore_bounds(state['bounds'],state.get('maximized',False))
         for chart in self.charts:
             self.restore_view(chart,state.get('charts',{}).get(chart.key,{}))
+        for chart in self.replay_charts:
+            chart.set_graph_mode(state.get('replay_modes',{}).get(chart.key,'line'), redraw=False)
         for item in self.saved_preferences.get('detached',[]):
             source=next((c for c in self.charts if c.key==item['metric']),None)
             if source is None:
@@ -1113,7 +1185,7 @@ class Dashboard(tk.Tk):
         colors={uid:chart.series_color(uid) for uid in self.devices}
         colors.update(chart.series_colors)
         return {'colors':colors,'styles':chart.line_styles,'opacity':chart.series_opacity,'time_mode':chart.time_mode,'focus':chart.focused_uuid,
-                'focus_uuids':sorted(chart.focus_set),
+                'focus_uuids':sorted(chart.focus_set),'graph_mode':chart.graph_mode,
                 'zoom':chart.view.zoom,'lag':chart.view.lag}
 
     def preference_state(self):
@@ -1126,6 +1198,7 @@ class Dashboard(tk.Tk):
             panels={k:p.preference_state() for k,p in self.system_panels.items()},
             live_panels={k:p.preference_state() for k,p in self.live_system_panels.items()},
             heatmap=dict(metric=self.resource_heatmap.metric,window=self.resource_heatmap.range_name,expanded=self.resource_heatmap.expanded))
+        state['main']['replay_modes']={c.key:c.graph_mode for c in self.replay_charts}
         for window in self.detached:
             item=self.chart_preferences(window.chart)
             item.update(metric=window.chart.key,bounds=list(window.chrome.preference_bounds()),maximized=window.chrome.is_maximized(),

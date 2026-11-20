@@ -175,6 +175,27 @@ class DashboardTests(unittest.TestCase):
             self.assertTrue(all(row["gpu_name"]=="RTX 4070" for row in rows))
         self.assertIsNone(self.app.charts[0].focused_uuid)
 
+    def test_heatmap_view_switch_hover_and_detach(self):
+        from heatmap import HeatmapScene
+
+        chart = self.app.charts[0]
+        chart.set_graph_mode('heatmap')
+        self.pump()
+        self.assertIsInstance(chart.scene, HeatmapScene)
+        self.assertEqual(len(chart.scene.lanes), 3)
+        left, top, right, bottom = chart.scene.lanes[0].bounds
+        chart.pointer(SimpleNamespace(x=(left + right) // 2, y=(top + bottom) // 2))
+        self.assertTrue(chart.canvas.find_withtag('heatmap-hover'))
+        self.assertEqual(self.app.preference_state()['main']['charts'][chart.key]['graph_mode'], 'heatmap')
+        detached = self.app.open_window(chart)
+        self.pump()
+        self.assertEqual(detached.chart.graph_mode, 'heatmap')
+        chart.set_graph_mode('line')
+        self.pump()
+        self.assertNotIsInstance(chart.scene, HeatmapScene)
+        self.assertFalse(chart.canvas.find_withtag('heatmap-hover'))
+        self.assertEqual(detached.chart.graph_mode, 'heatmap')
+
     def test_mouse_zoom_has_conditional_timeline_and_reset(self):
         chart = self.app.charts[0]
         self.assertFalse(chart.time_scrollbar.winfo_manager())

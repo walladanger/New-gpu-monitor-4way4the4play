@@ -28,6 +28,8 @@ Expand **Advanced analytics · time occupancy heatmap** at the bottom of Live. C
 
 The color represents how much recorded time was spent in a cell: yellow, then red, then purple. A high instantaneous value does not automatically turn a cell purple. A sample interval contributes only when the next sample is within 2.5 seconds; gaps and missing readings are excluded. The final sample has no invented future duration.
 
+The grid adapts to the available space, up to 100 time columns and 48 value bands. The legend shows the active resolution. GPU panels offer their own heatmap view from the graph-type menu, with one lane per GPU and hover details.
+
 ## What the readings mean
 
 | Reading | Meaning |
@@ -44,6 +46,6 @@ Pause from Live freezes both kinds of live graphs. Resume continues with a gap. 
 
 ## Current limits
 
-System history is in memory only, up to 4,000 snapshots. GPU history alone is archived to SQLite and available in Replay and existing CSV/PDF exports. System detail graphs currently show five minutes and do not yet have GPU pinning, zoom or export controls. The heatmap covers system sensors; GPU heatmaps remain future work. Tray, alerts and process/runtime insights remain deferred.
+System history is in memory only, up to 4,000 snapshots. GPU history alone is archived to SQLite and available in Replay and existing CSV/PDF exports. System detail graphs currently show five minutes and do not yet have GPU pinning, zoom or export controls. Tray, alerts and process/runtime insights remain deferred.
 
 The three screenshots above are actual Tk test-app captures on an isolated Linux display, using explicitly labeled synthetic data. They demonstrate implemented controls, not Windows hardware readings or benchmark results. The original screenshots elsewhere in the guide were captured on Windows. Reproduce resource captures with `python tools/capture_resources.py`; on Windows the tool uses the existing window-only capture path.

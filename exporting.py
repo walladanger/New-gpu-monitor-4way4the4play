@@ -8,6 +8,7 @@ from PIL import Image, ImageDraw
 
 from gpu_data import METRICS, gpu_labels
 from graph_scene import BG, PANEL, TEXT, MUTED, exact, font, render_graph
+from heatmap import render_heatmap
 
 
 def visible_records(history, uuid, left, right):
@@ -29,7 +30,8 @@ def export_csv(path, records, uuid, name):
                              r.capacity, r.temperature, r.power, r.power_limit))
 
 
-def export_pdf(path, records, uuid, key, devices, colors, line_styles, pins, left, right, clock_now,opacities=None,time_mode='relative'):
+def export_pdf(path, records, uuid, key, devices, colors, line_styles, pins, left, right, clock_now,
+               opacities=None, time_mode='relative', heatmap_history=None):
     if not records:
         raise ValueError("No recorded samples in the visible range.")
     name = gpu_labels(devices)[uuid]
@@ -47,8 +49,13 @@ def export_pdf(path, records, uuid, key, devices, colors, line_styles, pins, lef
     a = datetime.fromtimestamp(records[0].wall_time).astimezone().isoformat(timespec="milliseconds")
     b = datetime.fromtimestamp(records[-1].wall_time).astimezone().isoformat(timespec="milliseconds")
     draw.text((55, 133), f"{a}  to  {b}", font=font(17), fill=MUTED)
-    graph = render_graph(key, 1170, 510, records, devices, colors, uuid, right-left, right,
-                         pins, focused=uuid, line_styles=line_styles, clock_now=clock_now,opacities=opacities,time_mode=time_mode)
+    if heatmap_history is not None:
+        graph = render_heatmap(key, 1170, 510, heatmap_history, devices, colors, uuid,
+                               right-left, right, clock_now=clock_now, time_mode=time_mode)
+    else:
+        graph = render_graph(key, 1170, 510, records, devices, colors, uuid, right-left, right,
+                             pins, focused=uuid, line_styles=line_styles, clock_now=clock_now,
+                             opacities=opacities, time_mode=time_mode)
     first.paste(graph.image, (55, 175))
     draw.text((55, 715), f"{len(records)} actual driver samples · no interpolated measurements", font=font(20, True), fill=TEXT)
     y = 765
