@@ -8,6 +8,7 @@ from pathlib import Path
 import queue
 import logging
 import sys
+import sqlite3
 import time
 import tkinter as tk
 
@@ -31,6 +32,7 @@ from system_data import SystemCollector, SystemSnapshot
 from system_view import SystemPanel
 from system_graph import series_label
 from resource_overview import ResourceOverview, OccupancyHeatmapPanel
+from apps_tab import AppsTab
 from ui_resources import PhotoImage,BooleanVar,drain_resources
 from chart_view import normalize_color, LINE_STYLES
 
@@ -532,10 +534,13 @@ class Dashboard(tk.Tk):
         self.replay_tab_button.pack(side="left", padx=(0, 5))
         self.system_tab_button = button(self.tab_strip, "▦  System", self.show_system)
         self.system_tab_button.pack(side="left")
+        self.apps_tab_button = button(self.tab_strip, "▣  Apps", self.show_apps)
+        self.apps_tab_button.pack(side="left", padx=(5, 0))
         self.live_page = tk.Frame(self, bg=BG)
         self.live_page.pack(fill="both", expand=True)
         self.replay_page = tk.Frame(self, bg=BG)
         self.system_page = tk.Frame(self, bg=BG)
+        self.apps_page = AppsTab(self, self)
         self.toolbar = tk.Frame(self.live_page, bg=BG)
         self.toolbar.pack(fill="x", padx=24, pady=(14, 8))
         filters = tk.Frame(self.toolbar, bg=BG)
@@ -760,12 +765,26 @@ class Dashboard(tk.Tk):
         self.replay_pause()
         self.live_page.pack_forget()
         self.replay_page.pack_forget()
+        self.apps_page.pack_forget()
         self.system_page.pack(fill="both",expand=True)
         self.active_tab="system"
         self.style_tab_buttons()
         self.layout_system_graphs()
         self.refresh_status()
         self.schedule_redraw()
+
+    def show_apps(self):
+        if self.active_tab == "apps":
+            return
+        self.replay_pause()
+        self.live_page.pack_forget()
+        self.replay_page.pack_forget()
+        self.system_page.pack_forget()
+        self.apps_page.pack(fill="both", expand=True)
+        self.active_tab = "apps"
+        self.style_tab_buttons()
+        self.apps_page.refresh()
+        self.refresh_status()
 
     def layout_system_graphs(self):
         width,height=self.system_viewport.winfo_width(),self.system_viewport.winfo_height()
@@ -815,7 +834,7 @@ class Dashboard(tk.Tk):
 
     def style_tab_buttons(self):
         for name, control in (("live", self.live_tab_button), ("replay", self.replay_tab_button),
-                              ("system", self.system_tab_button)):
+                              ("system", self.system_tab_button), ("apps", self.apps_tab_button)):
             selected = self.active_tab == name
             control.configure(
                 bg="#253647" if selected else BG, fg=TEXT if selected else MUTED,
@@ -828,6 +847,7 @@ class Dashboard(tk.Tk):
         self.replay_pause()
         self.replay_page.pack_forget()
         self.system_page.pack_forget()
+        self.apps_page.pack_forget()
         self.live_page.pack(fill="both", expand=True)
         self.active_tab = "live"
         self.style_tab_buttons()
@@ -840,6 +860,7 @@ class Dashboard(tk.Tk):
             return
         self.live_page.pack_forget()
         self.system_page.pack_forget()
+        self.apps_page.pack_forget()
         self.replay_page.pack(fill="both", expand=True)
         self.active_tab = "replay"
         self.style_tab_buttons()
@@ -1322,6 +1343,8 @@ class Dashboard(tk.Tk):
                 now=self.frozen_at if self.paused else time.monotonic()
                 for panel in self.system_panels.values():
                     panel.render(history,300,now)
+        elif self.active_tab == "apps":
+            pass
         elif self.winfo_viewable():
             context = self.context(self.gpu_choice, self.window_choice)
             for chart in self.charts:
@@ -1376,6 +1399,11 @@ class Dashboard(tk.Tk):
         self.error = error
         self.available = {reading.uuid for reading in snapshot.readings}
         self.history.append(snapshot)
+        if save and snapshot.readings:
+            try:
+                self.apps_page.observe(snapshot)
+            except (OSError, ValueError, sqlite3.Error) as exc:
+                logging.getLogger('gpu_live_graphs').warning('App observation unavailable: %s', exc)
         if save and self.store:
             self.store.append(snapshot,error)
         if snapshot.readings:
@@ -1401,6 +1429,8 @@ class Dashboard(tk.Tk):
             root.gpu_choice.set(names[uid] if uid in names else 'All GPUs')
             self.apply_gpu_selection(root)
         self.layout_legend()
+        if self.active_tab == "apps" and set(self.apps_page.gpu_values.values()) != set(self.devices):
+            self.apps_page.refresh()
 
     def poll_history(self):
         if not self.store:

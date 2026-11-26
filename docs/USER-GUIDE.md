@@ -1,5 +1,7 @@
 # GPU Live Graphs 0.8.0
 
+Current source builds also include an **Apps** tab for saved EXE launch profiles and UUID-based GPU selection. See [Apps setup, observations, and limits](GPU-APPS.md). The published 0.8.0 preview does not include this tab.
+
 Four live NVIDIA graphs: GPU usage, VRAM, temperature and board power. Written in Python, with Tkinter windows and Pillow graph rendering.
 
 ## Start

@@ -10,13 +10,13 @@
 ![Telemetry](https://img.shields.io/badge/Telemetry-NVIDIA%20nvidia--smi-9CE583?style=flat-square)
 [![Windows checks](https://github.com/walladanger/New-gpu-monitor-4way4the4play/actions/workflows/windows-checks.yml/badge.svg)](https://github.com/walladanger/New-gpu-monitor-4way4the4play/actions/workflows/windows-checks.yml)
 
-[Get started](#get-started) · [Feature tour](#feature-tour) · [User guide](docs/USER-GUIDE.md) · [Roadmap](ROADMAP.md)
+[Get started](#get-started) · [Feature tour](#feature-tour) · [Apps and GPU launch](docs/GPU-APPS.md) · [User guide](docs/USER-GUIDE.md) · [Roadmap](ROADMAP.md)
 
 </div>
 
 GPU Live Graphs is a focused Windows desktop monitor for **GPU utilization, VRAM, core temperature, and board power**. Compare cards at a glance, zoom into a workload, and pin recorded samples to see how the measurements changed together.
 
-Built in **Python**, with **Tkinter** desktop windows and **Pillow** graph rendering. Monitoring is read-only; the app does not change clocks, fans, or power limits.
+Built in **Python**, with **Tkinter** desktop windows and **Pillow** graph rendering. Live monitoring is read-only; the Apps tab can launch saved programs. The app does not change clocks, fans, or power limits.
 
 ![Four-panel dashboard with three named GPUs and clearly labeled demo data](docs/images/01-dashboard.png)
 
@@ -27,6 +27,10 @@ Built in **Python**, with **Tkinter** desktop windows and **Pillow** graph rende
 The dedicated **Replay** tab was added in [PR #2](https://github.com/walladanger/New-gpu-monitor-4way4the4play/pull/2). It loads the last retained completed SQLite session (or explicitly snapshots the current session) and replays actual NVIDIA samples at their original intervals, with scrubbing, 0.25×–4× speed, and an exact stop at the last recorded sample. The Live dashboard keeps collecting independently. See [Replay data-fidelity notes](docs/REPLAY.md).
 
 **Included in the 0.8.0 preview**. The earlier 0.6.0 installer remains Live-only.
+
+## Apps tab · current source build
+
+Save local EXE launch profiles with a physical NVIDIA GPU UUID, then launch with that UUID in `CUDA_VISIBLE_DEVICES`. The tab shows managed, external, exited, and failed launch states plus known/unknown minutes of 24-hour process and device observations. It labels GPU usage as device-wide and treats per-app usage and token/image counts as unavailable. A running app is not moved to another card. This work is in source; the published 0.8.0 preview predates it. See [setup and limits](docs/GPU-APPS.md).
 
 ## At a glance
 

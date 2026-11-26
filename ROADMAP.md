@@ -10,7 +10,7 @@ Reviewed November 18, 2026 against standalone **0.8.0 preview**. This roadmap be
 | 3 next | Persistent history | Implemented: 24h archive, 128 MB database cap, 1h graph restore, saved-history CSV |
 | 2 next | Saved preferences | Implemented: atomic JSON, UUID-based views, geometry recovery, detached views |
 | 1 next | Stability | 100-cycle synthetic and 180-second live checks passed; multi-hour and full mixed-DPI qualification remain open |
-| 5 later | Tray, alerts, process details | Deferred at the user's request pending visual ideas and screenshots |
+| 5 later | App GPU controls and process details | Initial source implementation; hardware qualification and runtime adapters open |
 
 ## Working now
 
@@ -69,7 +69,9 @@ Read [Replay scope and fidelity](docs/REPLAY.md). The feature is included in the
 
 ## P2 · Monitoring that stays out of the way
 
-Tray monitoring, alerts, and process details in this section are deferred until the user's next ideas/screenshots are available.
+The current source build adds an initial [Apps tab](docs/GPU-APPS.md): saved UUID-bound launch profiles and a bounded 24-hour process/device observation timeline. Dual-GPU Ollama/InvokeAI placement, child-process tracking, and runtime counters still need qualification. The published 0.8.0 preview predates this work.
+
+Tray monitoring and alerts remain deferred. The initial Apps tab adds launch profiles and bounded process observations; richer process details remain open.
 
 - [ ] Tray quick view with explicit quit.
 - [ ] Optional temperature/VRAM/power thresholds with debounce and cooldown.
